@@ -156,7 +156,7 @@ def main():
     # These are standard parts of the simulation USE THEM AS IS, DO NOT CHANGE
     model = world.spec.compile()
     data = mujoco.MjData(model) # type: ignore
-    print(len(HISTORY))
+
 
     # Initialise data tracking
     # to_track is automatically updated every time step
@@ -199,12 +199,10 @@ def main():
     initial_pos = np.array([0, 0])
     target_pos = np.array(HISTORY)[-1, 0:2].flatten()
     
-    print(f"Initial position: {initial_pos}")
-    print(f"Final position: {target_pos}")
+
     
     # Calculate fitness based on euclidean distance
     d = distance_to_target(initial_pos, target_pos)
-    print(f"Distance: {d}")
 
 
     
@@ -274,13 +272,10 @@ def evaluate(individual):
     initial_pos = np.array(HISTORY)[0, 0:2].flatten()
     target_pos = np.array(HISTORY)[-1, 0:2].flatten()
     
-    print(f"Initial position: {initial_pos}")
-    print(f"Final position: {target_pos}")
-    
     # Calculate fitness based on euclidean distance
     d = distance_to_target(initial_pos, target_pos)
     
-    return d
+    return (d, )
     
     
     
@@ -317,9 +312,40 @@ if __name__ == "__main__":
     ind1 = toolbox.individual()
 
     # Create population
-    pop = toolbox.population(n = 100)
+    n_pop = 10
+    pop = toolbox.population(n = n_pop)
     
-    # Assign fitness for one individual
-    ind1.fitness.value = evaluate(ind1)
+    # Assign fitness for every individual in population
+    for ind in pop:
+        ind.fitness.values = evaluate(ind)
+        
+    # Parent selection
+    parents = tools.selTournament(pop, n_pop, 4, "fitness")
+    
+    # Clone individuals for crossover
+    offspring = [toolbox.clone(ind) for ind in parents]
+    alpha = 0.5
+    for i in range(0, len(offspring), 2):
+        tools.cxBlend(offspring[i], offspring[i+1], alpha)
+        del offspring[i].fitness.values
+        del offspring[i+1].fitness.values
+
+        tools.mutGaussian(offspring[i], mu = 0.0, sigma = 0.2, indpb = 1)
+        tools.mutGaussian(offspring[i+1], mu = 0.0, sigma = 0.2, indpb = 1)
+
+    
+    
+    
+    # for ind in pop:
+    #     print(f"Original pop fitness: {ind[:4]}")
+    # for ind in parents:
+    #     print(f"Parents fitness: {ind[:4]}")
+    # for ind in offspring:
+    #     print(f"Offspring fitness: {ind[:4]}")
+    
+    
+      
+
+        
 
 
