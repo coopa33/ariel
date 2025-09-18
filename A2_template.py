@@ -14,7 +14,7 @@ from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 
 # import fitness functions
 from ariel.simulation.tasks.targeted_locomotion import distance_to_target
-import tensorflow
+# import tensorflow
 
 
 # Keep track of data / history
@@ -29,12 +29,8 @@ def controller(model, data, to_track, W1, W2, W3):
         return (np.exp(x) - np.exp(-x)) / (np.exp(x) + np.exp(-x))
     
     # Get inputs, in this case the position of the actuator motors (hinges)
-    inputs = data.qpos 
-    
-    # z-score standardization
-    
-        
-    
+    inputs = data.qpos
+
     # Run the input
     # s through the layers of the network
     layer1 = tanh(np.dot(inputs, W1))
@@ -43,7 +39,7 @@ def controller(model, data, to_track, W1, W2, W3):
     
     
     # Scale outputs to+ data.ctrl [-pi/2, pi/2]
-    delta = 0.1
+    delta = 0.05
     scaling = np.pi/2
     data.ctrl = np.clip((outputs * delta * scaling) + data.ctrl, -np.pi/2, np.pi/2) 
     
@@ -229,7 +225,101 @@ def main():
     #     video_recorder=video_recorder,
     # )
 
+
+
+
+
+# Create an fitness evaluation function
+def evaluate(individual):
+    mujoco.set_mjcb_control(None) # DO NOT REMOVE
+
+    world = SimpleFlatWorld()
+    gecko_core = gecko()     # DO NOT CHANGE
+    world.spawn(gecko_core.spec, spawn_position=[0, 0, 0])
+    
+    model = world.spec.compile()
+    data = mujoco.MjData(model) # type: ignore
+
+    geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
+    to_track = [data.bind(geom) for geom in geoms if "core" in geom.name]
+    input_size = len(data.qpos) # data.qpos is the positions of the actuator motors
+    output_size = model.nu # Number of manipulable hinges?
+    
+    # Hyperparameters
+    hidden_size = 8 # Number of nodes in the hidden layer. Means hidden layers have 
+                    # identical number of nodes
+    # 3 Layers
+    # Input 15
+    # Output 8
+    # Hidden 8
+    W1 = np.reshape(individual[:120], shape=(input_size, hidden_size))
+    W2 = np.reshape(individual[120:184], shape=(hidden_size, hidden_size))
+    W3 = np.reshape(individual[184:248], shape=(hidden_size, output_size))
+    
+    mujoco.set_mjcb_control(lambda m,d: controller(m, d, to_track, W1, W2, W3))
+    
+    # --- Simulation without rendering
+    duration = 60
+    while data.time < duration:
+        mujoco.mj_step(model, data)
+        
+    # # --- Simulation with rendering
+    # viewer.launch(
+    #     model,
+    #     data,
+    # )
+        
+    
+    # Extract initial and final x and y position
+    initial_pos = np.array(HISTORY)[0, 0:2].flatten()
+    target_pos = np.array(HISTORY)[-1, 0:2].flatten()
+    
+    print(f"Initial position: {initial_pos}")
+    print(f"Final position: {target_pos}")
+    
+    # Calculate fitness based on euclidean distance
+    d = distance_to_target(initial_pos, target_pos)
+    
+    return d
+    
+    
+    
+    
+
+    
+    
+
 if __name__ == "__main__":
-    main()
+    # main()
+    
+    ### --- DEAP EA
+    ### Just testing for now!
+
+    import random
+    from deap import base, creator, tools
+
+    creator.create("FitnessMax", base.Fitness, weights=(1.0, ))
+    creator.create("Individual", list, fitness=creator.FitnessMax)
+
+    IND_SIZE = 248 # For future: Set hyperparameters before and make IND_SIZE adaptible
+
+    # Initial weight distribution
+    def initial_weights():
+        return random.uniform(-1, 1)
+    
+    toolbox = base.Toolbox()
+    toolbox.register("attr_float", initial_weights)
+    toolbox.register("individual", tools.initRepeat, creator.Individual,
+                    toolbox.attr_float, n=IND_SIZE)
+    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+
+    # Create single individual
+    ind1 = toolbox.individual()
+
+    # Create population
+    pop = toolbox.population(n = 100)
+    
+    # Assign fitness for one individual
+    ind1.fitness.value = evaluate(ind1)
 
 

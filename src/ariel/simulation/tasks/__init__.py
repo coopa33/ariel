@@ -1,6 +1,6 @@
-from .gate_learning import xy_displacement_ff, x_speed_ff, y_speed_ff
-from .targeted_locomotion import distance_to_target_ff
-from .turning_in_place import turning_in_place_ff
+from .gate_learning import xy_displacement, x_speed, y_speed
+from .targeted_locomotion import distance_to_target
+from .turning_in_place import turning_in_place
 
 tasks = [
     "Gate Learning",
@@ -8,7 +8,7 @@ tasks = [
     "Turning In Place"]
 
 _task_fitness_function_map_ = {
-    "Gate Learning": [xy_displacement_ff, x_speed_ff, y_speed_ff],
-    "Targeted Locomotion": [distance_to_target_ff],
-    "Turning In Place": [turning_in_place_ff],
+    "Gate Learning": [xy_displacement, x_speed, y_speed],
+    "Targeted Locomotion": [distance_to_target],
+    "Turning In Place": [turning_in_place],
 }
