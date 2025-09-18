@@ -326,22 +326,26 @@ if __name__ == "__main__":
     offspring = [toolbox.clone(ind) for ind in parents]
     alpha = 0.5
     for i in range(0, len(offspring), 2):
+        # Crossover
         tools.cxBlend(offspring[i], offspring[i+1], alpha)
         del offspring[i].fitness.values
         del offspring[i+1].fitness.values
+        
+        # Mutation
+        tools.mutGaussian(offspring[i], mu = 0.0, sigma = 0.2, indpb = 0.2)
+        tools.mutGaussian(offspring[i+1], mu = 0.0, sigma = 0.2, indpb = 0.2)
+        offspring[i].fitness.values  = evaluate(offspring[i])
+        offspring[i + 1].fitness.values = evaluate(offspring[i+1])
 
-        tools.mutGaussian(offspring[i], mu = 0.0, sigma = 0.2, indpb = 1)
-        tools.mutGaussian(offspring[i+1], mu = 0.0, sigma = 0.2, indpb = 1)
+    # Survivor selection
+    survivors = tools.selBest(pop + offspring, n_pop)
+    
+    
+    for ind in pop:
+        print(f"Original pop fitness: {ind.fitness.values}")
+    for ind in survivors:
+        print(f"Survivor fitness: {ind.fitness.values}")
 
-    
-    
-    
-    # for ind in pop:
-    #     print(f"Original pop fitness: {ind[:4]}")
-    # for ind in parents:
-    #     print(f"Parents fitness: {ind[:4]}")
-    # for ind in offspring:
-    #     print(f"Offspring fitness: {ind[:4]}")
     
     
       
