@@ -1,6 +1,13 @@
 {
 	"name": "Ariel",
 	"image": "mcr.microsoft.com/devcontainers/base:noble",
+	"runArgs": [
+		"--device=/dev/dri",
+		"-e", "DISPLAY=:0",
+		"-e", "QT_X11_NO_MITSHM=1",
+		"-v", "/tmp/.X11-unix:/tmp/.X11-unix:rw",
+		"-v", "/home/danyu/.Xauthority:/home/vscode/.Xauthority:ro"
+		],
 	"customizations": {
 		"vscode": {
 			"extensions": [
@@ -44,6 +51,7 @@
 		// "type=bind,source=${localEnv:HOME}/.ssh,target=/vscode/.ssh,readonly"
 	],
 	"containerEnv": {
+		"MUJOCO_GL" : "glfw",
 		"PYTHONDONTWRITEBYTECODE": "True",
 		"PYTHONUNBUFFERED": "True",
 		"UV_LINK_MODE": "copy"
