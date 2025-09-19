@@ -14,7 +14,9 @@ from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 
 # import fitness functions
 from ariel.simulation.tasks.targeted_locomotion import distance_to_target
-# import tensorflow
+
+import random
+from deap import base, creator, tools, algorithms
 
 
 # Keep track of data / history
@@ -228,7 +230,7 @@ def main():
 
 
 # Create an fitness evaluation function
-def evaluate(individual):
+def evaluateInd(individual):
     mujoco.set_mjcb_control(None) # DO NOT REMOVE
 
     world = SimpleFlatWorld()
@@ -290,61 +292,148 @@ if __name__ == "__main__":
     ### --- DEAP EA
     ### Just testing for now!
 
-    import random
-    from deap import base, creator, tools
+
 
     creator.create("FitnessMax", base.Fitness, weights=(1.0, ))
     creator.create("Individual", list, fitness=creator.FitnessMax)
 
     IND_SIZE = 248 # For future: Set hyperparameters before and make IND_SIZE adaptible
+    POP_SIZE = 10
+    NGEN = 2
+    CXPB = 0.5
+    MUTPB = 0.2 # Probability of mutation occuring on a individual 
+    
 
-    # Initial weight distribution
-    def initial_weights():
-        return random.uniform(-1, 1)
+    
+    # --- Toolbox registration. Set the parameters for selection and variation HERE!! ---
+    """
+        Using toolbox registration, the function parameters need only be set once and before the algorithm is run. All functionalities
+        can then be accessed from toolbox by toolbox.<Name>(). Also, if a mate and mutate function are registered, algorithms.varAnd 
+        can be called to mate, mutate, and invalidate the fitness values all at the same time. 
+    """
     
     toolbox = base.Toolbox()
-    toolbox.register("attr_float", initial_weights)
-    toolbox.register("individual", tools.initRepeat, creator.Individual,
-                    toolbox.attr_float, n=IND_SIZE)
-    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-
-    # Create single individual
-    ind1 = toolbox.individual()
-
-    # Create population
-    n_pop = 10
-    pop = toolbox.population(n = n_pop)
+    
+    # Register function to sample float values from uniform distribution
+    toolbox.register(
+        "attr_float",               # -- Registered Name    
+        random.uniform,             # -- Registered Function
+        a = -1,                   # -- Function Arguments
+        b = 1                    
+        )
+    toolbox.register(
+        "individual",               
+        tools.initRepeat,           
+        creator.Individual,         
+        toolbox.attr_float,         
+        n=IND_SIZE               
+        )
+    
+    # Register population to consist of above defined individuals
+    toolbox.register(
+        "population",              
+        tools.initRepeat,          
+        list,                      
+        toolbox.individual          
+        )
+    
+    # Register variation operators
+    toolbox.register(
+        "mate",                    
+        tools.cxBlend,            
+        alpha = 0.5                 
+        )
+    toolbox.register(
+        "mutate",                   
+        tools.mutGaussian, 
+        mu = 0.0, 
+        sigma = 0.2, 
+        indpb = 0.2
+        )
+    
+    # Register selection operators
+    toolbox.register(
+        "select_parents",           
+        tools.selTournament,        
+        tournsize = 4,              
+        k = POP_SIZE                
+        ) 
+    toolbox.register(
+        "select_survivors",        
+        tools.selBest,              
+        k = POP_SIZE                
+        )
+    
+    # Register evaluation operator
+    toolbox.register("evaluate", evaluateInd)
+    
+    # --- Algorithm ---
+    
+    # Initialize population
+    pop = toolbox.population(n = POP_SIZE)
     
     # Assign fitness for every individual in population
-    for ind in pop:
-        ind.fitness.values = evaluate(ind)
+    init_fitnesses = toolbox.map(toolbox.evaluate, pop)
+    for ind, fit in zip(pop, init_fitnesses):
+        ind.fitness.values = fit
         
-    # Parent selection
-    parents = tools.selTournament(pop, n_pop, 4, "fitness")
-    
-    # Clone individuals for crossover
-    offspring = [toolbox.clone(ind) for ind in parents]
-    alpha = 0.5
-    for i in range(0, len(offspring), 2):
-        # Crossover
-        tools.cxBlend(offspring[i], offspring[i+1], alpha)
-        del offspring[i].fitness.values
-        del offspring[i+1].fitness.values
-        
-        # Mutation
-        tools.mutGaussian(offspring[i], mu = 0.0, sigma = 0.2, indpb = 0.2)
-        tools.mutGaussian(offspring[i+1], mu = 0.0, sigma = 0.2, indpb = 0.2)
-        offspring[i].fitness.values  = evaluate(offspring[i])
-        offspring[i + 1].fitness.values = evaluate(offspring[i+1])
-
-    # Survivor selection
-    survivors = tools.selBest(pop + offspring, n_pop)
-    
-    
     for ind in pop:
         print(f"Original pop fitness: {ind.fitness.values}")
-    for ind in survivors:
-        print(f"Survivor fitness: {ind.fitness.values}")
+        
+    # Simulate NGEN generations
+    for g in range(NGEN):
+        
+        # Parent selection and cloning
+        offspring = map(toolbox.clone, toolbox.select_parents(pop))
+        
+        # Apply variation operators
+        offspring = algorithms.varAnd(offspring, toolbox, CXPB, MUTPB)
+
+        # Evaluate offspring fitnesses, only those which had genotypes changed by mating and mutating
+        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+        fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+        for ind, fit in zip(invalid_ind, fitnesses):
+            ind.fitness.values = fit
+        
+        # New generation
+        pop[:] = toolbox.select_survivors(pop + offspring)
+        
+        
+    for ind in pop:
+        print(f"After algorithm pop fitness: {ind.fitness.values}")
+        
+        
+        
+        
+    
+        
+    # # Parent selection
+    # parents = tools.selTournament(pop, POP_SIZE, 4, "fitness")
+    
+    # # Clone individuals for crossover
+    # offspring = [toolbox.clone(ind) for ind in parents]
+    # alpha = 0.5
+    # for i in range(0, len(offspring), 2):
+    #     # Crossover
+    #     tools.cxBlend(offspring[i], offspring[i+1], alpha)
+    #     del offspring[i].fitness.values
+    #     del offspring[i+1].fitness.values
+        
+    #     # Mutation
+    #     tools.mutGaussian(offspring[i], mu = 0.0, sigma = 0.2, indpb = 0.2)
+    #     tools.mutGaussian(offspring[i+1], mu = 0.0, sigma = 0.2, indpb = 0.2)
+    #     offspring[i].fitness.values  = evaluateInd(offspring[i])
+    #     offspring[i + 1].fitness.values = evaluateInd(offspring[i+1])
+
+    # # Survivor selection
+    # survivors = tools.selBest(pop + offspring, n_pop)
+    
+    
+
+    # for ind in survivors:
+    #     print(f"Survivor fitness: {ind.fitness.values}")
+        
+    # ---
 
     
     
