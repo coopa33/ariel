@@ -14,40 +14,86 @@ from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 
 # import fitness functions
 from ariel.simulation.tasks.targeted_locomotion import distance_to_target
-# import tensorflow
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"      # don’t probe CUDA
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"       # hide INFO
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"      # avoid oneDNN init noise
 
 
+import random
+from deap import base, creator, tools, algorithms
+import time
+from tqdm import tqdm
+import torch
+import torch.nn as nn
+import multiprocessing as mp
+
+class NeuralNet(nn.Module):
+    def __init__(self, 
+        input_dim:      int, 
+        output_dim:     int, 
+        n_layers:       int, 
+        hidden_dim:     int, 
+        activation:     nn.Module   =   nn.Tanh()
+        ):
+        super().__init__()
+        layers = []
+        x_dim = input_dim
+        
+        for _ in range(n_layers):
+            layers.append(nn.Linear(x_dim, hidden_dim))
+            layers.append(activation)
+            x_dim = hidden_dim # Continue with hidden sized inputs
+        layers.append(nn.Linear(x_dim, output_dim))
+        
+        self.net = nn.Sequential(*layers)
+    
+    def forward(self, x):
+        return self.net(x)
+
+def size_network_weights(model: nn.Module) -> int:
+    return sum(p.numel() for p in model.parameters()) 
+
+@torch.no_grad()
+def assign_weights(
+    model:      nn.Module,
+    w_np:       np.ndarray
+    ):
+    w_np = np.asarray(w_np, dtype = np.float32).ravel(order="C") # Make sure w_np is the right format
+    w_t_cpu = torch.from_numpy(w_np)
+    
+    idx = 0
+    for p in model.parameters():
+        n = p.numel()
+        if idx + n > w_t_cpu.numel():
+            raise ValueError("Individual size is smaller than the number of weights in the network")
+        slice_view = w_t_cpu[idx:idx + n].reshape(p.shape).to(device=p.device, dtype=p.dtype)
+        p.copy_(slice_view)
+        idx += n
+    
 # Keep track of data / history
 HISTORY = []
-
-def controller(model, data, to_track, W1, W2, W3):
+@torch.no_grad()
+def controller(model, data, to_track, NN):
+    # Get inputs, make sure that input type and device match NN
+    p = next(NN.parameters())
+    dtype = p.dtype
+    device = p.device
+    inputs = torch.from_numpy(data.qpos).to(device = device, dtype = dtype).unsqueeze(0)
     
-    def sigmoid(x):
-        return 1.0 / (1.0 + np.exp(-x))
+    # Get outputs from NN instance parameter
+    outputs = NN(inputs)
+    outputs = outputs.squeeze().detach().cpu().numpy()
     
-    def tanh(x):
-        return (np.exp(x) - np.exp(-x)) / (np.exp(x) + np.exp(-x))
-    
-    # Get inputs, in this case the position of the actuator motors (hinges)
-    inputs = data.qpos
-
-    # Run the input
-    # s through the layers of the network
-    layer1 = tanh(np.dot(inputs, W1))
-    layer2 = tanh(np.dot(layer1, W2))
-    outputs = tanh(np.dot(layer2, W3))
-    
-    
-    # Scale outputs to+ data.ctrl [-pi/2, pi/2]
+    # Scale outputs cover full movement range of hinges [-pi/2, pi/2]
     delta = 0.05
     scaling = np.pi/2
-    data.ctrl = np.clip((outputs * delta * scaling) + data.ctrl, -np.pi/2, np.pi/2) 
+    data.ctrl[:] = np.clip((outputs * delta * scaling) + data.ctrl, -np.pi/2, np.pi/2) 
     
     # Save movement to HISTORY
-
     HISTORY.append(to_track[0].xpos.copy())
     # print(len(HISTORY))
-    
     
 def random_move(model, data, to_track) -> None:
     """Generate random movements for the robot's joints.
@@ -109,7 +155,6 @@ def show_qpos_history(history:list):
     # Convert list of [x,y,z] positions to numpy array
     pos_data = np.array(history) 
 
-    
     # Create figure and axis
     plt.figure(figsize=(10, 6))
     
@@ -135,100 +180,9 @@ def show_qpos_history(history:list):
     print("Saved plot to trajectory.png")
 
 
-def main():
-    """Main function to run the simulation with random movements."""
-    # Initialise controller to controller to None, always in the beginning.
-    mujoco.set_mjcb_control(None) # DO NOT REMOVE
-    
-    # Initialise world
-    # Import environments from ariel.simulation.environments
-    world = SimpleFlatWorld()
-
-    # Initialise robot body
-    # YOU MUST USE THE GECKO BODY
-    gecko_core = gecko()     # DO NOT CHANGE
-
-    # Spawn robot in the world
-    # Check docstring for spawn conditions
-    world.spawn(gecko_core.spec, spawn_position=[0, 0, 0])
-    
-    # Generate the model and data
-    # These are standard parts of the simulation USE THEM AS IS, DO NOT CHANGE
-    model = world.spec.compile()
-    data = mujoco.MjData(model) # type: ignore
-
-
-    # Initialise data tracking
-    # to_track is automatically updated every time step
-    # You do not need to touch it.
-    geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
-    to_track = [data.bind(geom) for geom in geoms if "core" in geom.name]
-    
-    # Simple 3-layer neural network
-    input_size = len(data.qpos) # data.qpos is the positions of the actuator motors
-    hidden_size = 8 # Number of nodes in the hidden layer. Means hidden layers have 
-                    # identical number of nodes
-    output_size = model.nu # Number of manipulable hinges?
-    
-    # Get inputs, in this case the position of the actuator motors (hinges)
-    
-    # Initialize the network weights randomly
-    W1 = np.random.randn(input_size, hidden_size) * .1
-    W2 = np.random.randn(hidden_size, hidden_size) * .1
-    W3 = np.random.randn(hidden_size, output_size) * .1 # 2 hidden layers
-    
-
-    # Set the control callback function
-    # This is called every time step to get the next action. 
-    mujoco.set_mjcb_control(lambda m,d: controller(m, d, to_track, W1, W2, W3))
-    # mujoco.set_mjcb_control(None)
-
-    # This opens a viewer window and runs the simulation with the controller you defined
-    # If mujoco.set_mjcb_control(None), then you can control the limbs yourself.
-    # viewer.launch(
-    #     model=model,  # type: ignore
-    #     data=data,
-    # )
-    
-    # --- Simulation 
-    duration = 60
-    while data.time < duration:
-        mujoco.mj_step(model, data)
-    
-    # Extract initial and final x and y position
-    initial_pos = np.array([0, 0])
-    target_pos = np.array(HISTORY)[-1, 0:2].flatten()
-    
-
-    
-    # Calculate fitness based on euclidean distance
-    d = distance_to_target(initial_pos, target_pos)
-
-
-    
-    # print(len(HISTORY))
-
-    show_qpos_history(HISTORY)
-    # If you want to record a video of your simulation, you can use the video renderer.
-
-    # # Non-default VideoRecorder options
-    # PATH_TO_VIDEO_FOLDER = "./__videos__"
-    # video_recorder = VideoRecorder(output_folder=PATH_TO_VIDEO_FOLDER)
-
-    # # Render with video recorder
-    # video_renderer(
-    #     model,
-    #     data,
-    #     duration=30,
-    #     video_recorder=video_recorder,
-    # )
-
-
-
-
 
 # Create an fitness evaluation function
-def evaluate(individual):
+def evaluateInd(individual, NN):
     mujoco.set_mjcb_control(None) # DO NOT REMOVE
 
     world = SimpleFlatWorld()
@@ -240,24 +194,14 @@ def evaluate(individual):
 
     geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
     to_track = [data.bind(geom) for geom in geoms if "core" in geom.name]
-    input_size = len(data.qpos) # data.qpos is the positions of the actuator motors
-    output_size = model.nu # Number of manipulable hinges?
     
-    # Hyperparameters
-    hidden_size = 8 # Number of nodes in the hidden layer. Means hidden layers have 
-                    # identical number of nodes
-    # 3 Layers
-    # Input 15
-    # Output 8
-    # Hidden 8
-    W1 = np.reshape(individual[:120], shape=(input_size, hidden_size))
-    W2 = np.reshape(individual[120:184], shape=(hidden_size, hidden_size))
-    W3 = np.reshape(individual[184:248], shape=(hidden_size, output_size))
+    # Decode genotype and assign weights to network
+    assign_weights(NN, individual)
     
-    mujoco.set_mjcb_control(lambda m,d: controller(m, d, to_track, W1, W2, W3))
+    mujoco.set_mjcb_control(lambda m,d: controller(m, d, to_track, NN))
     
     # --- Simulation without rendering
-    duration = 60
+    duration = 10
     while data.time < duration:
         mujoco.mj_step(model, data)
         
@@ -266,6 +210,7 @@ def evaluate(individual):
     #     model,
     #     data,
     # )
+    
         
     
     # Extract initial and final x and y position
@@ -275,76 +220,137 @@ def evaluate(individual):
     # Calculate fitness based on euclidean distance
     d = distance_to_target(initial_pos, target_pos)
     
+    HISTORY.clear()
+    
     return (d, )
-    
-    
-    
-    
 
-    
-    
+# Create an fitness evaluation function
+def renderBest(individual, NN):
+    mujoco.set_mjcb_control(None) # DO NOT REMOVE
 
-if __name__ == "__main__":
-    # main()
+    world = SimpleFlatWorld()
+    gecko_core = gecko()     # DO NOT CHANGE
+    world.spawn(gecko_core.spec, spawn_position=[0, 0, 0])
     
-    ### --- DEAP EA
-    ### Just testing for now!
+    model = world.spec.compile()
+    data = mujoco.MjData(model) # type: ignore
 
-    import random
-    from deap import base, creator, tools
+    geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
+    to_track = [data.bind(geom) for geom in geoms if "core" in geom.name]
+    
+    # Decode genotype and assign weights to network
+    assign_weights(NN, individual)
+    
+    mujoco.set_mjcb_control(lambda m,d: controller(m, d, to_track, NN))
+        
+    # # --- Simulation with rendering
+    viewer.launch(
+        model,
+        data,
+    )
+    show_qpos_history(HISTORY)
+
+def main():
+    random.seed(1)
+    pool = mp.Pool(processes = mp.cpu_count() - 1)
+
+
+        
+    # --- Get single robot to get input and output dims ---    
+    world = SimpleFlatWorld()
+    gecko_core = gecko()     # DO NOT CHANGE
+    world.spawn(gecko_core.spec, spawn_position=[0, 0, 0])
+    model = world.spec.compile()
+    data = mujoco.MjData(model) 
+    
+    input_dim = len(data.qpos)
+    output_dim = model.nu
+    hidden_dim = 64
+    n_layers = 4
+    
+    # --- Neural Net
+    NN = NeuralNet(
+        input_dim =     input_dim,
+        output_dim =    output_dim,
+        n_layers =      n_layers, 
+        hidden_dim =    hidden_dim
+    )
+    # Global Variables
+    POP_SIZE = 100
+    NGEN = 10
+    CXPB = 0.5
+    MUTPB = 0.5                                              # Probability of mutation occuring on a individual 
+    global IND_SIZE
+    IND_SIZE = sum([p.numel() for p in NN.parameters()])    # Individual size is exactly the number of weights in NN.
+    global DURATION
+    DURATION = 5
 
     creator.create("FitnessMax", base.Fitness, weights=(1.0, ))
     creator.create("Individual", list, fitness=creator.FitnessMax)
-
-    IND_SIZE = 248 # For future: Set hyperparameters before and make IND_SIZE adaptible
-
-    # Initial weight distribution
-    def initial_weights():
-        return random.uniform(-1, 1)
     
     toolbox = base.Toolbox()
-    toolbox.register("attr_float", initial_weights)
-    toolbox.register("individual", tools.initRepeat, creator.Individual,
-                    toolbox.attr_float, n=IND_SIZE)
+    
+    # Register function to sample float values from uniform distribution
+    toolbox.register("attr_float", random.uniform, a = -1, b = 1)
+    toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_float, n=IND_SIZE)
+    
+    # Register population to consist of above defined individuals
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-
-    # Create single individual
-    ind1 = toolbox.individual()
-
-    # Create population
-    n_pop = 10
-    pop = toolbox.population(n = n_pop)
     
-    # Assign fitness for every individual in population
-    for ind in pop:
-        ind.fitness.values = evaluate(ind)
+    # Register variation operators
+    toolbox.register("mate", tools.cxBlend, alpha = 0.5)
+    toolbox.register("mutate", tools.mutGaussian, mu = 0.0, sigma = 0.5, indpb = 0.5)
+
+    # Register selection operators
+    toolbox.register("select_parents", tools.selTournament, tournsize = 4, k = POP_SIZE) 
+    toolbox.register("select_survivors", tools.selBest, k = POP_SIZE)
+    
+    # Register evaluation operator and make evaluation multi-processor
+    toolbox.register("evaluate", evaluateInd, NN = NN)
+    toolbox.register("map", pool.map)
+    
+    
+    total_start = time.time()
+    
+    # Initialize population and evaluate initial fitnesses
+    pop = toolbox.population(n = POP_SIZE)
+    init_f = toolbox.map(toolbox.evaluate, pop)
+    for ind, f in zip(pop, init_f):
+        ind.fitness.values = f
+    
+    print(f"Initial max fitness:{max(init_f)}")
         
-    # Parent selection
-    parents = tools.selTournament(pop, n_pop, 4, "fitness")
-    
-    # Clone individuals for crossover
-    offspring = [toolbox.clone(ind) for ind in parents]
-    alpha = 0.5
-    for i in range(0, len(offspring), 2):
-        # Crossover
-        tools.cxBlend(offspring[i], offspring[i+1], alpha)
-        del offspring[i].fitness.values
-        del offspring[i+1].fitness.values
-        
-        # Mutation
-        tools.mutGaussian(offspring[i], mu = 0.0, sigma = 0.2, indpb = 0.2)
-        tools.mutGaussian(offspring[i+1], mu = 0.0, sigma = 0.2, indpb = 0.2)
-        offspring[i].fitness.values  = evaluate(offspring[i])
-        offspring[i + 1].fitness.values = evaluate(offspring[i+1])
+    # Simulate NGEN generations
+    for _ in tqdm(range(NGEN)):
+        offspring = map(toolbox.clone, toolbox.select_parents(pop))
+        offspring = algorithms.varAnd(offspring, toolbox, CXPB, MUTPB)
 
-    # Survivor selection
-    survivors = tools.selBest(pop + offspring, n_pop)
-    
-    
+        
+        # Evaluate offspring fitnesses, only those which had genotypes changed by mating and mutating
+        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+        fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+        for ind, fit in zip(invalid_ind, fitnesses):
+            ind.fitness.values = fit
+            
+        # New generation
+        pop[:] = toolbox.select_survivors(pop + offspring)
+        
     for ind in pop:
-        print(f"Original pop fitness: {ind.fitness.values}")
-    for ind in survivors:
-        print(f"Survivor fitness: {ind.fitness.values}")
+        print(f"After algorithm pop fitness: {ind.fitness.values}")
+    total_end = time.time()
+    print(f"Total time: {total_end - total_start}")
+    
+    # Maximum individual
+    final_f = toolbox.map(toolbox.evaluate, pop)
+    max_idx = np.argmax(final_f)
+    best_ind, best_f = pop[max_idx], final_f[max_idx]
+    print(f"Best individual fitness: {best_f}")
+    renderBest(best_ind, NN)
+        
+    pool.close(); pool.join()
+
+if __name__ == "__main__":
+    main()
 
     
     
