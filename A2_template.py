@@ -114,7 +114,7 @@ def controller(model, data, to_track, NN, history):
     dtype = p.dtype
     device = p.device
 
-    inputs = torch.from_numpy(data.qpos).to(device = device, dtype = dtype).unsqueeze(0)
+    inputs = torch.from_numpy(data.qvel).to(device = device, dtype = dtype).unsqueeze(0)
     
     # Get outputs from NN instance parameter
     outputs = NN(inputs)
@@ -237,7 +237,7 @@ def evaluateInd(individual, NN):
     mujoco.set_mjcb_control(lambda m, d: controller(m, d, to_track, NN, history))
     
     simulation_time = 10
-    goal = np.array([10, 0])
+    goal = np.array([0, -1])
     while data.time < simulation_time:
         mujoco.mj_step(model, data, nstep= 100)
         
@@ -300,7 +300,7 @@ def main():
     data = mujoco.MjData(model) 
     
     # Network structure
-    input_dim = len(data.qpos)
+    input_dim = len(data.qvel)
     output_dim = model.nu
     hidden_dim = 64
     n_layers = 2
@@ -317,37 +317,14 @@ def main():
     POP_SIZE = 100
     NGEN = 10
     CXPB = 0.8
-    MUTPB = 1                          # Probability of mutation occuring on a individual 
+    MUTPB = 1                               # Probability of mutation occuring on a individual 
     global IND_SIZE
-    IND_SIZE = size_network_weights(NN)    # Individual size is exactly the number of weights in NN.
+    IND_SIZE = size_network_weights(NN)     # Individual size is exactly the number of weights in NN.
     E = 0
     # Setup DEAP toolbox
     creator.create("FitnessMin", base.Fitness, weights=(-1.0, ))
     creator.create("Individual", list, fitness=creator.FitnessMin)
     toolbox = base.Toolbox()
-    
-    ### CMA
-    # toolbox.register("map", pool.map)
-    # toolbox.register("evaluate", evaluateInd, NN = NN)
-    # strategy = cma.Strategy(centroid = [0.0] * IND_SIZE, sigma = 0.1, lambda_ = 4 + int(6*np.log(IND_SIZE)))
-    # toolbox.register("generate", strategy.generate, creator.Individual)
-    # toolbox.register("update", strategy.update)
-    
-    # # bookkeeping
-    # hof = tools.HallOfFame(1)
-    # stats = tools.Statistics(lambda ind: ind.fitness.values)
-    # stats.register("avg", np.mean)
-    # stats.register("std", np.std)
-    # stats.register("min", np.min)
-    # stats.register("max", np.max)
-
-    # # run (ask/tell loop)
-    # pop, log = algorithms.eaGenerateUpdate(toolbox, ngen=20, stats=stats, halloffame=hof, verbose=True)
-
-    # print("Best fitness:", hof[0].fitness.values[0])
-    # renderBest(hof[0], NN)
-    # pool.close(); pool.join()
-    
     
     ### Standard EA strategy
     # Register function to sample float values from uniform distribution
@@ -379,6 +356,7 @@ def main():
     best_individuals = []
     averages = []
     std = []
+    
     # Simulate NGEN generations
     for _ in tqdm(range(NGEN)):
         # Parent selection
@@ -420,7 +398,6 @@ def main():
     total_end = time.time()
     # print(f"Total time: {total_end - total_start}")
     plot_A2(best_individuals, averages, std)
-    
     best_ind = tools.selBest(pop, 1)[0]
     print(f"Best individual fitness: {best_ind.fitness.values}")
     print(best_individuals)
