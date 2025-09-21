@@ -14,7 +14,6 @@ from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 
 # import fitness functions
 from ariel.simulation.tasks.targeted_locomotion import distance_to_target
-
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"      # don’t probe CUDA
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"       # hide INFO
@@ -36,7 +35,7 @@ class NeuralNet(nn.Module):
         n_layers:       int, 
         hidden_dim:     int, 
         activation_output: nn.Module    =   nn.Tanh(),
-        activation: nn.Module           =   nn.LeakyReLU()
+        activation: nn.Module           =   nn.Tanh()
         ):
         super().__init__()
         layers = []
@@ -101,14 +100,12 @@ def manual_controller(model, data, to_track, weights, history):
 
     # Scale outputs cover full movement range of hinges [-pi/2, pi/2]
     delta = 0.05
-    scaling = np.pi/2
+    # scaling = np.pi/2
 
     data.ctrl[:] = np.clip((outputs * delta) + data.ctrl, -np.pi/2, np.pi/2) 
 
     history.append(to_track[0].xpos.copy())
-        
-        
-        
+
 @torch.no_grad()
 def controller(model, data, to_track, NN, history):
     
@@ -125,7 +122,7 @@ def controller(model, data, to_track, NN, history):
     
     # Scale outputs cover full movement range of hinges [-pi/2, pi/2]
     delta = 0.5
-    scaling = np.pi/2
+    # scaling = np.pi/2
 
     data.ctrl = np.clip((outputs * delta) + data.ctrl, -np.pi/2, np.pi/2) 
 
@@ -227,6 +224,7 @@ def evaluateInd(individual, NN):
     
     model = world.spec.compile()
     data = mujoco.MjData(model) # type: ignore
+    
 
     geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
     to_track = [data.bind(geom) for geom in geoms if "core" in geom.name]
@@ -238,10 +236,10 @@ def evaluateInd(individual, NN):
     # mujoco.set_mjcb_control(lambda m, d: manual_controller(m, d, to_track, weights, history))
     mujoco.set_mjcb_control(lambda m, d: controller(m, d, to_track, NN, history))
     
-    simulation_time = 20
-    goal = np.array([0, -1])
+    simulation_time = 10
+    goal = np.array([10, 0])
     while data.time < simulation_time:
-        mujoco.mj_step(model, data)
+        mujoco.mj_step(model, data, nstep= 100)
         
     final_pos = np.array(history)[-1, :2]
     fitness = distance_to_target(final_pos, goal)
@@ -285,13 +283,6 @@ def plot_A2(best, averages, std):
     plt.legend()
     plt.savefig("A2_plot")
 
-def self_adapt_mut(individual, sigma, t, e0):
-    sigma_adapt = sigma * np.exp(t * np.random.normal(loc=0.0, scale=sigma))
-    sigma_adapt = max(e0, sigma_adapt)
-    for allele in individual:
-        allele += sigma_adapt * np.random.normal(loc=0.0, scale=sigma)
-    return individual, sigma
-
 def main():
     SEED = 42
     random.seed(SEED)
@@ -309,9 +300,9 @@ def main():
     data = mujoco.MjData(model) 
     
     # Network structure
-    input_dim = len(data.qpos) 
+    input_dim = len(data.qpos)
     output_dim = model.nu
-    hidden_dim = 40
+    hidden_dim = 64
     n_layers = 2
     
     #  Fully connected NN
@@ -335,105 +326,107 @@ def main():
     creator.create("Individual", list, fitness=creator.FitnessMin)
     toolbox = base.Toolbox()
     
-    # CMAE
-    toolbox.register("map", pool.map)
-    toolbox.register("evaluate", evaluateInd, NN = NN)
-    strategy = cma.Strategy(centroid = [0.0] * IND_SIZE, sigma = 1, lambda_ = 4 + int(12*np.log(IND_SIZE)))
-    toolbox.register("generate", strategy.generate, creator.Individual)
-    toolbox.register("update", strategy.update)
-    # bookkeeping (optional)
-    hof = tools.HallOfFame(1)
-    stats = tools.Statistics(lambda ind: ind.fitness.values)
-    stats.register("avg", np.mean)
-    stats.register("std", np.std)
-    stats.register("min", np.min)
-    stats.register("max", np.max)
-
-    # run (ask/tell loop)
-    pop, log = algorithms.eaGenerateUpdate(toolbox, ngen=20, stats=stats, halloffame=hof, verbose=True)
-
-    print("Best fitness:", hof[0].fitness.values[0])
-    print("Best x:", hof[0])
-    renderBest(hof[0], NN)
-    pool.close(); pool.join()
-    
-    # # Register function to sample float values from uniform distribution
-    # toolbox.register("attr_float", np.random.normal, loc=0.0, scale=0.2)
-    # toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_float, n=IND_SIZE)
-    # # Register population to consist of above defined individuals
-    # toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-    # # Register variation operators
-    # toolbox.register("mate", tools.cxBlend, alpha = 0.5)
-    # toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.1, indpb = 0.1)
-    # toolbox.register("mutate", self_adapt_mut, sigma = 0.1, t = 1/np.sqrt(IND_SIZE), e0 = 1)
-    # # Register selection operators
-    # toolbox.register("select_parents", tools.selTournament, tournsize = 3, k = POP_SIZE) 
-    # toolbox.register("select_survivors", tools.selBest, k = POP_SIZE - E)
-    # # Register evaluation operator and make evaluation multi-processor
-    # toolbox.register("evaluate", evaluateInd, NN = NN)
+    ### CMA
     # toolbox.register("map", pool.map)
+    # toolbox.register("evaluate", evaluateInd, NN = NN)
+    # strategy = cma.Strategy(centroid = [0.0] * IND_SIZE, sigma = 0.1, lambda_ = 4 + int(6*np.log(IND_SIZE)))
+    # toolbox.register("generate", strategy.generate, creator.Individual)
+    # toolbox.register("update", strategy.update)
     
-    # total_start = time.time()
-    
-    # # Initialize population and evaluate initial fitnesses
-    # pop = toolbox.population(n = POP_SIZE)
-    # init_f = toolbox.map(toolbox.evaluate, pop)
-    # for ind, f in zip(pop, init_f):
-    #     ind.fitness.values = f
-    
-    # print(f"Initial max fitness:{tools.selBest(pop, k=1)[0].fitness.values}")
-    
-    # best_individuals = []
-    # averages = []
-    # std = []
-    # # Simulate NGEN generations
-    # for _ in tqdm(range(NGEN)):
-    #     # Parent selection
-    #     parents = toolbox.select_parents(pop)
-    #     random.shuffle(parents)
-    #     offspring = list(toolbox.map(toolbox.clone, parents))
+    # # bookkeeping
+    # hof = tools.HallOfFame(1)
+    # stats = tools.Statistics(lambda ind: ind.fitness.values)
+    # stats.register("avg", np.mean)
+    # stats.register("std", np.std)
+    # stats.register("min", np.min)
+    # stats.register("max", np.max)
 
-    #     # offspring = algorithms.varAnd(offspring, toolbox, CXPB, MUTPB)
-    #     # Apply crossover
-    #     for child1, child2 in zip(offspring[::2], offspring[1::2]):
-    #         if random.random() < CXPB:
-    #             toolbox.mate(child1, child2)
-    #             del child1.fitness.values
-    #             del child2.fitness.values
-    #     # Apply mutation on the offspring
-    #     for mutant in offspring:
-    #         if random.random() < MUTPB:
-    #             toolbox.mutate(mutant)
-    #             del mutant.fitness.values
-        
-    #     # Evaluate offspring fitnesses, only those which had genotypes changed by mating and mutating
-    #     invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-    #     fitnesses = list(toolbox.map(toolbox.evaluate, invalid_ind))
-    #     for ind, fit in zip(invalid_ind, fitnesses):
-    #         ind.fitness.values = fit
-            
-    #     # New generation using age-based selection and elitism
-    #     pop[:] = toolbox.select_survivors(offspring) #+ tools.selBest(pop, k = E)
-        
-    #     fit_arr = np.array([ind.fitness.values[0] for ind in pop], dtype=float)
-    #     best_individuals.append(fit_arr.min()) 
-    #     averages.append(fit_arr.mean()) 
-    #     std.append(fit_arr.std())
-    #     if np.allclose(pop, pop[0], rtol = 0, atol = 1e-6 ):
-    #         break
-        
-    # for ind in pop:
-    #     print(f"After algorithm pop fitness: {ind.fitness.values}")
-    # total_end = time.time()
-    # # print(f"Total time: {total_end - total_start}")
-    # plot_A2(best_individuals, averages, std)
-    
-    # best_ind = tools.selBest(pop, 1)[0]
-    # print(f"Best individual fitness: {best_ind.fitness.values}")
-    # print(best_individuals)
-    # renderBest(best_ind, NN)
-        
+    # # run (ask/tell loop)
+    # pop, log = algorithms.eaGenerateUpdate(toolbox, ngen=20, stats=stats, halloffame=hof, verbose=True)
+
+    # print("Best fitness:", hof[0].fitness.values[0])
+    # renderBest(hof[0], NN)
     # pool.close(); pool.join()
+    
+    
+    ### Standard EA strategy
+    # Register function to sample float values from uniform distribution
+    toolbox.register("attr_float", np.random.normal, loc=0.0, scale=0.2)
+    toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_float, n=IND_SIZE)
+    # Register population to consist of above defined individuals
+    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+    # Register variation operators
+    toolbox.register("mate", tools.cxBlend, alpha = 0.5)
+    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.1, indpb = 0.1)
+    # toolbox.register("mutate", self_adapt_mut, sigma = 0.1, t = 1/np.sqrt(IND_SIZE), e0 = 1)
+    # Register selection operators
+    toolbox.register("select_parents", tools.selTournament, tournsize = 3, k = POP_SIZE) 
+    toolbox.register("select_survivors", tools.selBest, k = POP_SIZE - E)
+    # Register evaluation operator and make evaluation multi-processor
+    toolbox.register("evaluate", evaluateInd, NN = NN)
+    toolbox.register("map", pool.map)
+    
+    total_start = time.time()
+    
+    # Initialize population and evaluate initial fitnesses
+    pop = toolbox.population(n = POP_SIZE)
+    init_f = toolbox.map(toolbox.evaluate, pop)
+    for ind, f in zip(pop, init_f):
+        ind.fitness.values = f
+    
+    print(f"Initial max fitness:{tools.selBest(pop, k=1)[0].fitness.values}")
+    
+    best_individuals = []
+    averages = []
+    std = []
+    # Simulate NGEN generations
+    for _ in tqdm(range(NGEN)):
+        # Parent selection
+        parents = toolbox.select_parents(pop)
+        random.shuffle(parents)
+        offspring = list(toolbox.map(toolbox.clone, parents))
+
+        # offspring = algorithms.varAnd(offspring, toolbox, CXPB, MUTPB)
+        # Apply crossover
+        for child1, child2 in zip(offspring[::2], offspring[1::2]):
+            if random.random() < CXPB:
+                toolbox.mate(child1, child2)
+                del child1.fitness.values
+                del child2.fitness.values
+        # Apply mutation on the offspring
+        for mutant in offspring:
+            if random.random() < MUTPB:
+                toolbox.mutate(mutant)
+                del mutant.fitness.values
+        
+        # Evaluate offspring fitnesses, only those which had genotypes changed by mating and mutating
+        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+        fitnesses = list(toolbox.map(toolbox.evaluate, invalid_ind))
+        for ind, fit in zip(invalid_ind, fitnesses):
+            ind.fitness.values = fit
+            
+        # New generation using age-based selection and elitism
+        pop[:] = toolbox.select_survivors(offspring) #+ tools.selBest(pop, k = E)
+        
+        fit_arr = np.array([ind.fitness.values[0] for ind in pop], dtype=float)
+        best_individuals.append(fit_arr.min()) 
+        averages.append(fit_arr.mean()) 
+        std.append(fit_arr.std())
+        if np.allclose(pop, pop[0], rtol = 0, atol = 1e-6 ):
+            break
+        
+    for ind in pop:
+        print(f"After algorithm pop fitness: {ind.fitness.values}")
+    total_end = time.time()
+    # print(f"Total time: {total_end - total_start}")
+    plot_A2(best_individuals, averages, std)
+    
+    best_ind = tools.selBest(pop, 1)[0]
+    print(f"Best individual fitness: {best_ind.fitness.values}")
+    print(best_individuals)
+    renderBest(best_ind, NN)
+        
+    pool.close(); pool.join()
 
 if __name__ == "__main__":
     main()
