@@ -83,8 +83,8 @@ def controller(model, data, to_track, NN, history):
     p = next(NN.parameters())
     dtype = p.dtype
     device = p.device
-    obs = np.concatenate([data.qpos, data.qvel]).astype(np.float32, copy=False)
-    inputs = torch.from_numpy(obs).to(device = device, dtype = dtype).unsqueeze(0)
+
+    inputs = torch.from_numpy(data.qpos).to(device = device, dtype = dtype).unsqueeze(0)
     
     # Get outputs from NN instance parameter
     outputs = NN(inputs)
@@ -269,7 +269,7 @@ def main():
     data = mujoco.MjData(model) 
     
     # Network structure
-    input_dim = len(data.qpos) + len(data.qvel)
+    input_dim = len(data.qpos) 
     output_dim = model.nu
     hidden_dim = 16
     n_layers = 4
