@@ -19,7 +19,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"      # don’t probe CUDA
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"       # hide INFO
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"      # avoid oneDNN init noise
 
-
+import itertools
 import random
 from deap import base, creator, tools
 import torch
@@ -237,6 +237,17 @@ def plot_A2(best, averages, std):
     plt.legend()
     plt.savefig("A2_plot")
 
+def population_diversity(pop):
+    """
+    Measure the diversity in a population by evaluating the euclidean distance of each
+    individual from each other. The average of the distance is a metric for diversity. 
+    Higher average distance means 
+    """
+    # Cast individuals as numpy
+    arrays = [np.array(x, dtype = float) for x in pop]
+    dists = [np.linalg.norm(a - b) for a, b, in itertools.combinations(arrays, 2)]
+    return float(np.mean(dists)), float(np.min(dists))
+        
 def main():
     # Set seed
     SEED = 42
@@ -272,13 +283,14 @@ def main():
     # Population, individual, and elite size
     global IND_SIZE
     IND_SIZE = size_network_weights(NN) # Don't change!
-    E = 1
+    E = 5
+    IMMIGRANTS = 5
     POP_SIZE = 100
     NGEN = 200
     
     # Probability of crossover and mutation occuring on an individual
-    CXPB = 0.8                              
-    MUTPB = 1           
+    CXPB = 0.9                             
+    MUTPB = 1.0      
 
     # Setup DEAP toolbox
     creator.create("FitnessMin", base.Fitness, weights=(-1.0, ))
@@ -286,17 +298,17 @@ def main():
     toolbox = base.Toolbox()
     
     # Set population intitialization 
-    toolbox.register("attr_float", np.random.normal, loc=0.0, scale=1)
+    toolbox.register("attr_float", np.random.normal, loc=0.0, scale=0.1)
     toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_float, n=IND_SIZE)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
     
     # Set variation operators
     toolbox.register("mate", tools.cxBlend, alpha = 0.5)
-    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.1, indpb = 0.1)
+    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.015, indpb = 1)
     
     # Set selection operators
-    toolbox.register("select_parents", tools.selTournament, tournsize = 3, k = POP_SIZE) 
-    toolbox.register("select_survivors", tools.selBest, k = POP_SIZE - E)
+    toolbox.register("select_parents", tools.selTournament, tournsize = 2, k = POP_SIZE) 
+    toolbox.register("select_survivors", tools.selBest, k = POP_SIZE - IMMIGRANTS)
     
     # Set evaluation and multi-core processing
     toolbox.register("evaluate", evaluateInd, NN = NN)
@@ -324,6 +336,8 @@ def main():
         for child1, child2 in zip(offspring[::2], offspring[1::2]):
             if random.random() < CXPB:
                 toolbox.mate(child1, child2)
+                child1[:] = np.clip(np.array(child1), -0.5, 0.5).tolist()
+                child2[:] = np.clip(np.array(child2), -0.5, 0.5).tolist()
                 del child1.fitness.values
                 del child2.fitness.values
         # Apply mutation on the offspring
@@ -331,21 +345,29 @@ def main():
             if random.random() < MUTPB:
                 toolbox.mutate(mutant)
                 del mutant.fitness.values
+                # Clip to keep weights in sensible range and prevent exploding weights
+                mutant[:] = np.clip(np.array(mutant), -1, 1).tolist()
         # Evaluate offspring fitnesses of individuals which had genotypes changed by mating and mutating
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         fitnesses = list(toolbox.map(toolbox.evaluate, invalid_ind))
         for ind, fit in zip(invalid_ind, fitnesses):
             ind.fitness.values = fit
-        # New generation using age-based selection and elitism
-        pop[:] = toolbox.select_survivors(offspring) #+ tools.selBest(pop, k = E)
-        # Collect statistics
+        # New generation using age-based selection, elitism, and immigration
+        immigrants = toolbox.population(n = IMMIGRANTS)
+        imm_fitnesses = list(toolbox.map(toolbox.evaluate, immigrants))
+        for ind, fit in zip(immigrants, imm_fitnesses):
+            ind.fitness.values = fit
+        pop[:] = toolbox.select_survivors(offspring + tools.selBest(pop, k = E))  + immigrants
+        # Extract statistics
         fit_arr = np.array([ind.fitness.values[0] for ind in pop], dtype=float)
         avg = np.mean(fit_arr)
         std = np.std(fit_arr)
         fmin = np.min(fit_arr)
         fmax = np.max(fit_arr)
+        av_dist, min_dist = population_diversity(pop)
         # Print EA progress
-        print(f"{gen:>3} {len(offspring):>7} {avg:>10.4f} {std:>10.4f} {fmin:>10.4f} {fmax:>10.4f}")
+        print(f"{'NGEN':>3} {'n_pop':>7} {'average':>10.4} {'std':>10.4} {'min':>10.4} {'max':>10.4} {"av. dist.":>10.4} {"min. dist"}")
+        print(f"{gen:>3} {len(offspring):>7} {avg:>10.4f} {std:>10.4f} {fmin:>10.4f} {fmax:>10.4f} {av_dist:>10.4f} {min_dist:>10.4f}")
         # Save statistics
         best_individuals.append(tools.selBest(pop, k=1)[0])
         best_fits.append(tools.selBest(pop, k=1)[0].fitness.values)
