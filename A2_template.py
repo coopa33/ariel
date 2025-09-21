@@ -186,13 +186,13 @@ def evaluateInd(individual, NN):
     # Start simulation
     mujoco.set_mjcb_control(lambda m, d: controller(m, d, to_track, NN, history))
     simulation_time = 20
-    goal = np.array([0, -1])
+    
     while data.time < simulation_time:
         mujoco.mj_step(model, data, nstep= 100)
     
     # Evaluate fitness
     final_pos = np.array(history)[-1, :2]
-    fitness = distance_to_target(final_pos, goal)
+    fitness = distance_to_target(final_pos, GOAL)
     return (float(fitness), )
 
 def renderBest(individual, NN):
@@ -246,11 +246,10 @@ def population_diversity(pop):
     # Cast individuals as numpy
     arrays = [np.array(x, dtype = float) for x in pop]
     dists = [np.linalg.norm(a - b) for a, b, in itertools.combinations(arrays, 2)]
-    return float(np.mean(dists)), float(np.min(dists))
+    return (float(np.mean(dists)), float(np.min(dists)), float(np.max(dists)))
         
 def main():
-    # Set seed
-    SEED = 42
+
     random.seed(SEED)
     np.random.seed(SEED)
     torch.manual_seed(SEED)
@@ -269,28 +268,23 @@ def main():
     input_dim = len(data.qvel)
     output_dim = model.nu
     # --- These can be edited here with the NN structure adapting
-    hidden_dim = 128
-    n_layers = 3
+
+
     
     # Create neural net
     NN = NeuralNet(
         input_dim =     input_dim,
         output_dim =    output_dim,
-        n_layers =      n_layers, 
-        hidden_dim =    hidden_dim
+        n_layers =      N_LAYERS, 
+        hidden_dim =    HIDDEN_DIM
     )
     
     # Population, individual, and elite size
     global IND_SIZE
     IND_SIZE = size_network_weights(NN) # Don't change!
-    E = 5
-    IMMIGRANTS = 5
-    POP_SIZE = 100
-    NGEN = 200
     
-    # Probability of crossover and mutation occuring on an individual
-    CXPB = 0.9                             
-    MUTPB = 1.0      
+    
+          
 
     # Setup DEAP toolbox
     creator.create("FitnessMin", base.Fitness, weights=(-1.0, ))
@@ -303,8 +297,8 @@ def main():
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
     
     # Set variation operators
-    toolbox.register("mate", tools.cxBlend, alpha = 0.5)
-    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.015, indpb = 1)
+    toolbox.register("mate", tools.cxBlend, alpha = 0.4)
+    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.015, indpb = 0.9)
     
     # Set selection operators
     toolbox.register("select_parents", tools.selTournament, tournsize = 2, k = POP_SIZE) 
@@ -364,10 +358,10 @@ def main():
         std = np.std(fit_arr)
         fmin = np.min(fit_arr)
         fmax = np.max(fit_arr)
-        av_dist, min_dist = population_diversity(pop)
+        av_dist, min_dist, max_dist= population_diversity(pop)
         # Print EA progress
-        print(f"{'NGEN':>3} {'n_pop':>7} {'average':>10.4} {'std':>10.4} {'min':>10.4} {'max':>10.4} {"av. dist.":>10.4} {"min. dist"}")
-        print(f"{gen:>3} {len(offspring):>7} {avg:>10.4f} {std:>10.4f} {fmin:>10.4f} {fmax:>10.4f} {av_dist:>10.4f} {min_dist:>10.4f}")
+        print(f"{'NGEN':>3} {'n_pop':>7} {'average':>10.4} {'std':>10.4} {'min':>10.4} {'max':>10.4} {"av dist.":>10.4} {"min dist":>10.4} {"max dist":>10.4}")
+        print(f"{gen:>3} {len(offspring):>7} {avg:>10.4f} {std:>10.4f} {fmin:>10.4f} {fmax:>10.4f} {av_dist:>10.4f} {min_dist:>10.4f} {max_dist:>10.4f}")
         # Save statistics
         best_individuals.append(tools.selBest(pop, k=1)[0])
         best_fits.append(tools.selBest(pop, k=1)[0].fitness.values)
@@ -388,6 +382,26 @@ def main():
     pool.join()
 
 if __name__ == "__main__":
+    # GOAL
+    GOAL = [0, -3]
+    # Set seed
+    SEED = 42
+    # Elitism and immigrants
+    E = 5
+    IMMIGRANTS = 4
+    # Population
+    POP_SIZE = 100
+    # Number of Generations
+    NGEN = 200
+    
+    # Network Specifications
+    HIDDEN_DIM = 128
+    N_LAYERS = 3
+    
+    # Probability of crossover and mutation occuring on an individual
+    CXPB = 0.9                             
+    MUTPB = 0.9
+    
     main()
 
     
