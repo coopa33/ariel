@@ -356,11 +356,8 @@ def render_video_of_ind(individual, duration = 30, path="./__videos__"):
     )
     
 def main(experiment = "Blend", RW = False):
+    mujoco.set_mjcb_control(None) 
 
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
-    
     # Multi-core pool
     ctx = mp.get_context("spawn")  # portable across OSes
     pool = ctx.Pool(
@@ -540,11 +537,15 @@ if __name__ == "__main__":
     max: The maximum euclidean distance found
     The remaining values are fitness statisticss, population size, and the number of generations passed
     """
+    # Set seed
+    SEED = 42
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
     
     # GOAL
     GOAL = [0, -3]
-    # Set seed
-    SEED = 42
+
     # Elitism and immigrants
     E = 0
     IMMIGRANTS = 0
