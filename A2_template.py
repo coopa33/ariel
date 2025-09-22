@@ -54,11 +54,11 @@ def worker_init(goal_xy, hidden_dim, n_layers, seed=None):
     G_MODEL = world.spec.compile()
     G_DATA = mujoco.MjData(G_MODEL)
 
-    # bind tracked geom once (e.g., "core")
+    # bind tracked geom once 
     geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
     G_TO_TRACK = [G_DATA.bind(g) for g in geoms if "core" in g.name]
 
-    # build NN with correct I/O dims
+    # build NN 
     input_dim = len(G_DATA.qvel) + len(G_DATA.qpos)
     output_dim = G_MODEL.nu
     G_NN = NeuralNet(input_dim=input_dim, output_dim=output_dim,
@@ -226,7 +226,7 @@ def evaluateInd(individual):
     
     # Start simulation
     mujoco.set_mjcb_control(lambda m, d: controller(m, d, to_track, G_NN, history))
-    simulation_time = 20
+    simulation_time = 10
     
     while G_DATA.time < simulation_time:
         mujoco.mj_step(G_MODEL, G_DATA, nstep= 100)
@@ -260,7 +260,6 @@ def evaluateRW(individual):
 
 def renderBest(individual):
     history = []
-
     # build world+robot in the main process
     world = SimpleFlatWorld()
     gecko_core = gecko()
@@ -312,6 +311,50 @@ def population_diversity(pop):
     dists = [np.linalg.norm(a - b) for a, b, in itertools.combinations(arrays, 2)]
     return (float(np.mean(dists)), float(np.min(dists)), float(np.max(dists)))
         
+def whole_arithmetic_recomb(ind1, ind2, alpha):
+    for i, (x1, x2) in enumerate(zip(ind1, ind2)):
+        cross_value = alpha * x2 + (1 - alpha) * x1
+        ind1[i] = cross_value
+        ind2[i] = cross_value
+
+    return ind1, ind2
+
+def render_video_of_ind(individual, duration = 30, path="./__videos__"):
+    history = []
+    # Get single robot to get input and output dims ---    
+    world = SimpleFlatWorld()
+    gecko_core = gecko()  
+    world.spawn(gecko_core.spec, spawn_position=[0, 0, 0])
+    model = world.spec.compile()
+    data = mujoco.MjData(model) 
+    # Bind tracked geom(s)
+    geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
+    to_track = [data.bind(g) for g in geoms if "core" in g.name]
+    # Network structure
+    input_dim = len(data.qvel) + len(data.qpos) 
+    output_dim = model.nu
+    # Create neural net
+    NN = NeuralNet(
+        input_dim =     input_dim,
+        output_dim =    output_dim,
+        n_layers =      N_LAYERS, 
+        hidden_dim =    HIDDEN_DIM
+    )
+    # Assign weights
+    assign_weights(NN, individual)
+    # Assign controls
+    mujoco.mj_resetData(model, data)
+    mujoco.set_mjcb_control(None)
+    mujoco.set_mjcb_control(lambda m, d: controller(m, d, to_track, NN, history))
+    # Record video
+    video_recorder = VideoRecorder(output_folder=path)
+    video_renderer(
+        model,
+        data,
+        duration,
+        video_recorder=video_recorder
+    )
+    
 def main(experiment = "Blend", RW = False):
 
     random.seed(SEED)
@@ -364,10 +407,10 @@ def main(experiment = "Blend", RW = False):
     
     # Set variation operators
     if experiment == "Blend":
-        toolbox.register("mate", tools.cxBlend, alpha = 0.4) # Blend Crossover
+        toolbox.register("mate", tools.cxBlend, alpha = 0.3) # Blend Crossover
     elif experiment == "Arithmetic":
         toolbox.register("mate", whole_arithmetic_recomb, alpha = 0.5) # Whole arithmetic crossover
-    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.01, indpb = 0.4)
+    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.1, indpb = 0.1)
     
     # Set selection operators
     toolbox.register("select_parents", tools.selTournament, tournsize = 2, k = POP_SIZE) 
@@ -392,9 +435,10 @@ def main(experiment = "Blend", RW = False):
     averages = []
     stds = []
 
-
+    print(0.1414 * np.sqrt(IND_SIZE))
     # Simulate NGEN generations
     for gen in range(NGEN):
+        # Random walk
         if RW:
             print("RW")
             fit_arr = np.array([ind.fitness.values[0] for ind in pop], dtype=float)
@@ -416,8 +460,7 @@ def main(experiment = "Blend", RW = False):
             init_f = toolbox.map(toolbox.evaluate, pop)
             for ind, f in zip(pop, init_f):
                 ind.fitness.values = f
-                
-        
+        # EA with either blend or whole arithmetic
         else:
             # Parent selection
             parents = toolbox.select_parents(pop)
@@ -427,8 +470,8 @@ def main(experiment = "Blend", RW = False):
             for child1, child2 in zip(offspring[::2], offspring[1::2]):
                 if random.random() < CXPB:
                     toolbox.mate(child1, child2)
-                    child1[:] = np.clip(np.array(child1), -0.5, 0.5).tolist()
-                    child2[:] = np.clip(np.array(child2), -0.5, 0.5).tolist()
+                    # child1[:] = np.clip(np.array(child1), -0.5, 0.5).tolist()
+                    # child2[:] = np.clip(np.array(child2), -0.5, 0.5).tolist()
                     del child1.fitness.values
                     del child2.fitness.values
             # Apply mutation on the offspring
@@ -479,25 +522,16 @@ def main(experiment = "Blend", RW = False):
         plot_A2(best_fits, averages, stds, "arithmetic_crossover")
     elif RW:
         plot_A2(best_fits, averages, stds, "random_walk")
-    # Render the best individual
+    # Record video of best individual
     best_ind = tools.selBest(best_individuals, 1)[0]
     print(f"Best individual fitness: {best_ind.fitness.values}")
-    renderBest(best_ind)
+    render_video_of_ind(best_ind)
 
     # Close pool
     pool.close()
     pool.join()
     
-    return best_fits, averages, stds
-    
-def whole_arithmetic_recomb(ind1, ind2, alpha):
-    for i, (x1, x2) in enumerate(zip(ind1, ind2)):
-        cross_value = alpha * x2 + (1 - alpha) * x1
-        ind1[i] = cross_value
-        ind2[i] = cross_value
-
-    return ind1, ind2
-        
+    return best_fits, averages, stds, best_ind
 
 if __name__ == "__main__":
     """
@@ -507,27 +541,32 @@ if __name__ == "__main__":
     max: The maximum euclidean distance found
     The remaining values are fitness statisticss, population size, and the number of generations passed
     """
+    
     # GOAL
     GOAL = [0, -3]
     # Set seed
     SEED = 42
     # Elitism and immigrants
-    E = 2
+    E = 0
     IMMIGRANTS = 0
     # Population
     POP_SIZE = 100
     # Number of Generations
-    NGEN = 200
+    NGEN = 20
 
     # Network Specifications
     HIDDEN_DIM = 128
     N_LAYERS = 3
 
     # Probability of crossover and mutation occuring on an individual
-    CXPB = 0.8                          
-    MUTPB = 1
+    CXPB = 0.7                          
+    MUTPB = 0.4
     
-    # EA
+    # Testing
+    _, _, _, best_ind = main(experiment="Blend")
+
+    
+    # Assignment plotting
     rw_best_fits = []
     rw_averages = []
     rw_stds = []
@@ -539,17 +578,17 @@ if __name__ == "__main__":
     arithmetic_stds = []
     
     for _ in range(3):
-        best_fit, averages, stds = main(RW=True)
+        best_fit, averages, stds, best_ind = main(RW=True)
         rw_best_fits.append(best_fit)
         rw_averages.append(averages)
         rw_stds.append(stds)
     for _ in range(3):
-        best_fit, averages, stds = main(experiment = "Blend")
+        best_fit, averages, stds, best_ind = main(experiment = "Blend")
         blend_best_fits.append(best_fit)
         blend_averages.append(averages)
         blend_stds.append(stds)
     for _ in range(3):
-        best_fit, averages, stds = main(experiment = "Arithmetic")
+        best_fit, averages, stds, best_ind = main(experiment = "Arithmetic")
         arithmetic_best_fits.append(best_fit)
         arithmetic_averages.append(averages)
         arithmetic_stds.append(stds)
@@ -568,6 +607,9 @@ if __name__ == "__main__":
     arithmetic_averages = np.mean(np.reshape(arithmetic_averages, shape=(3, NGEN)), axis=1)
     arithmetic_stds = np.mean(np.reshape(arithmetic_stds, shape=(3, NGEN)), axis = 1)
     plot_A2(rw_best_fits, rw_averages, rw_stds, "Arithmetic_CO_3_runs")
+
+    
+    
     
     
     
