@@ -593,19 +593,19 @@ if __name__ == "__main__":
         arithmetic_averages.append(averages)
         arithmetic_stds.append(stds)
         
-    rw_best_fits = np.mean(np.reshape(rw_best_fits, shape=(3, NGEN)), axis=1)
-    rw_averages = np.mean(np.reshape(rw_averages, shape=(3, NGEN)), axis=1)
-    rw_stds = np.mean(np.reshape(rw_stds, shape=(3, NGEN)), axis = 1)
+    rw_best_fits = np.mean(np.reshape(rw_best_fits, shape=(3, NGEN)), axis=0)
+    rw_averages = np.mean(np.reshape(rw_averages, shape=(3, NGEN)), axis=0)
+    rw_stds = np.mean(np.reshape(rw_stds, shape=(3, NGEN)), axis = 0)
     plot_A2(rw_best_fits, rw_averages, rw_stds, "Random_walk_3_runs")
     
-    blend_best_fits = np.mean(np.reshape(blend_best_fits, shape=(3, NGEN)), axis=1)
-    blend_averages = np.mean(np.reshape(blend_averages, shape=(3, NGEN)), axis=1)
-    blend_stds = np.mean(np.reshape(blend_stds, shape=(3, NGEN)), axis = 1)
+    blend_best_fits = np.mean(np.reshape(blend_best_fits, shape=(3, NGEN)), axis=0)
+    blend_averages = np.mean(np.reshape(blend_averages, shape=(3, NGEN)), axis=0)
+    blend_stds = np.mean(np.reshape(blend_stds, shape=(3, NGEN)), axis = 0)
     plot_A2(rw_best_fits, rw_averages, rw_stds, "Blend_CO_3_runs")
     
-    arithmetic_best_fits = np.mean(np.reshape(arithmetic_best_fits, shape=(3, NGEN)), axis=1)
-    arithmetic_averages = np.mean(np.reshape(arithmetic_averages, shape=(3, NGEN)), axis=1)
-    arithmetic_stds = np.mean(np.reshape(arithmetic_stds, shape=(3, NGEN)), axis = 1)
+    arithmetic_best_fits = np.mean(np.reshape(arithmetic_best_fits, shape=(3, NGEN)), axis=0)
+    arithmetic_averages = np.mean(np.reshape(arithmetic_averages, shape=(3, NGEN)), axis=0)
+    arithmetic_stds = np.mean(np.reshape(arithmetic_stds, shape=(3, NGEN)), axis = 0)
     plot_A2(rw_best_fits, rw_averages, rw_stds, "Arithmetic_CO_3_runs")
 
     
