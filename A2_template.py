@@ -562,8 +562,8 @@ if __name__ == "__main__":
     CXPB = 0.7                          
     MUTPB = 0.4
     
-    # Testing
-    _, _, _, best_ind = main(experiment="Blend")
+    # # Testing
+    # _, _, _, best_ind = main(experiment="Blend")
 
     
     # Assignment plotting
