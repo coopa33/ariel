@@ -178,7 +178,7 @@ def random_move(model, data, to_track, history) -> None:
 
     # Bound the control values to be within the hinge limits.
     # If a value goes outside the bounds it might result in jittery movement.
-    data.ctrl += np.clip(data.ctrl, -np.pi/2, np.pi/2)
+    data.ctrl = np.clip(data.ctrl, -np.pi/2, np.pi/2)
 
     # Save movement to history
     history.append(to_track[0].xpos.copy())
@@ -407,7 +407,7 @@ def main(experiment = "Blend", RW = False):
     
     # Set variation operators
     if experiment == "Blend":
-        toolbox.register("mate", tools.cxBlend, alpha = 0.3) # Blend Crossover
+        toolbox.register("mate", tools.cxBlend, alpha = 0.4) # Blend Crossover
     elif experiment == "Arithmetic":
         toolbox.register("mate", whole_arithmetic_recomb, alpha = 0.5) # Whole arithmetic crossover
     toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.1, indpb = 0.1)
@@ -562,51 +562,51 @@ if __name__ == "__main__":
     CXPB = 0.7                          
     MUTPB = 0.4
     
-    # # Testing
-    # _, _, _, best_ind = main(experiment="Blend")
+    # Testing
+    _, _, _, best_ind = main(experiment="Blend")
 
     
     # Assignment plotting
-    rw_best_fits = []
-    rw_averages = []
-    rw_stds = []
-    blend_best_fits = []
-    blend_averages = []
-    blend_stds = []
-    arithmetic_best_fits = []
-    arithmetic_averages = []
-    arithmetic_stds = []
+    # rw_best_fits = []
+    # rw_averages = []
+    # rw_stds = []
+    # blend_best_fits = []
+    # blend_averages = []
+    # blend_stds = []
+    # arithmetic_best_fits = []
+    # arithmetic_averages = []
+    # arithmetic_stds = []
     
-    for _ in range(3):
-        best_fit, averages, stds, best_ind = main(RW=True)
-        rw_best_fits.append(best_fit)
-        rw_averages.append(averages)
-        rw_stds.append(stds)
-    for _ in range(3):
-        best_fit, averages, stds, best_ind = main(experiment = "Blend")
-        blend_best_fits.append(best_fit)
-        blend_averages.append(averages)
-        blend_stds.append(stds)
-    for _ in range(3):
-        best_fit, averages, stds, best_ind = main(experiment = "Arithmetic")
-        arithmetic_best_fits.append(best_fit)
-        arithmetic_averages.append(averages)
-        arithmetic_stds.append(stds)
+    # for _ in range(3):
+    #     best_fit, averages, stds, best_ind = main(RW=True)
+    #     rw_best_fits.append(best_fit)
+    #     rw_averages.append(averages)
+    #     rw_stds.append(stds)
+    # for _ in range(3):
+    #     best_fit, averages, stds, best_ind = main(experiment = "Blend")
+    #     blend_best_fits.append(best_fit)
+    #     blend_averages.append(averages)
+    #     blend_stds.append(stds)
+    # for _ in range(3):
+    #     best_fit, averages, stds, best_ind = main(experiment = "Arithmetic")
+    #     arithmetic_best_fits.append(best_fit)
+    #     arithmetic_averages.append(averages)
+    #     arithmetic_stds.append(stds)
         
-    rw_best_fits = np.mean(np.reshape(rw_best_fits, shape=(3, NGEN)), axis=0)
-    rw_averages = np.mean(np.reshape(rw_averages, shape=(3, NGEN)), axis=0)
-    rw_stds = np.mean(np.reshape(rw_stds, shape=(3, NGEN)), axis = 0)
-    plot_A2(rw_best_fits, rw_averages, rw_stds, "Random_walk_3_runs")
+    # rw_best_fits = np.mean(np.reshape(rw_best_fits, shape=(3, NGEN)), axis=0)
+    # rw_averages = np.mean(np.reshape(rw_averages, shape=(3, NGEN)), axis=0)
+    # rw_stds = np.mean(np.reshape(rw_stds, shape=(3, NGEN)), axis = 0)
+    # plot_A2(rw_best_fits, rw_averages, rw_stds, "Random_walk_3_runs")
     
-    blend_best_fits = np.mean(np.reshape(blend_best_fits, shape=(3, NGEN)), axis=0)
-    blend_averages = np.mean(np.reshape(blend_averages, shape=(3, NGEN)), axis=0)
-    blend_stds = np.mean(np.reshape(blend_stds, shape=(3, NGEN)), axis = 0)
-    plot_A2(blend_best_fits, blend_averages, blend_stds, "Blend_CO_3_runs")
+    # blend_best_fits = np.mean(np.reshape(blend_best_fits, shape=(3, NGEN)), axis=0)
+    # blend_averages = np.mean(np.reshape(blend_averages, shape=(3, NGEN)), axis=0)
+    # blend_stds = np.mean(np.reshape(blend_stds, shape=(3, NGEN)), axis = 0)
+    # plot_A2(blend_best_fits, blend_averages, blend_stds, "Blend_CO_3_runs")
     
-    arithmetic_best_fits = np.mean(np.reshape(arithmetic_best_fits, shape=(3, NGEN)), axis=0)
-    arithmetic_averages = np.mean(np.reshape(arithmetic_averages, shape=(3, NGEN)), axis=0)
-    arithmetic_stds = np.mean(np.reshape(arithmetic_stds, shape=(3, NGEN)), axis = 0)
-    plot_A2(arithmetic_best_fits, arithmetic_averages, arithmetic_stds, "Arithmetic_CO_3_runs")
+    # arithmetic_best_fits = np.mean(np.reshape(arithmetic_best_fits, shape=(3, NGEN)), axis=0)
+    # arithmetic_averages = np.mean(np.reshape(arithmetic_averages, shape=(3, NGEN)), axis=0)
+    # arithmetic_stds = np.mean(np.reshape(arithmetic_stds, shape=(3, NGEN)), axis = 0)
+    # plot_A2(arithmetic_best_fits, arithmetic_averages, arithmetic_stds, "Arithmetic_CO_3_runs")
 
     
     
