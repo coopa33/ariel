@@ -297,7 +297,7 @@ def plot_A2(best, averages, std, name):
     plt.fill_between(x, np.array(averages) - std, averages + std, alpha = 0.2, label="Std")
     plt.xlabel("Generations")
     plt.ylabel("Fitness")
-    plt.legend()
+    plt.legend(loc='upper right')
     plt.savefig(name)
 
 def population_diversity(pop):
@@ -552,7 +552,7 @@ if __name__ == "__main__":
     # Population
     POP_SIZE = 100
     # Number of Generations
-    NGEN = 20
+    NGEN = 2
 
     # Network Specifications
     HIDDEN_DIM = 128
