@@ -440,7 +440,6 @@ def main(experiment = "Blend", RW = False):
     for gen in range(NGEN):
         # Random walk
         if RW:
-            print("RW")
             fit_arr = np.array([ind.fitness.values[0] for ind in pop], dtype=float)
             avg = np.mean(fit_arr)
             std = np.std(fit_arr)
@@ -448,6 +447,7 @@ def main(experiment = "Blend", RW = False):
             fmax = np.max(fit_arr)
             av_dist, min_dist, max_dist= population_diversity(pop)
             # Print EA progress
+            print("Random Move")
             print(f"{'NGEN':>3} {'n_pop':>7} {'average':>10.4} {'std':>10.4} {'min':>10.4} {'max':>10.4} {'av_dist.':>10.7} {'min_dist':>10.7} {'max_dist':>10.7}")
             print(f"{gen + 1:>3} {len(pop):>7} {avg:>10.4f} {std:>10.4f} {fmin:>10.4f} {fmax:>10.4f} {av_dist:>10.7f} {min_dist:>10.7f} {max_dist:>10.7f}")
             # Save statistics
@@ -503,6 +503,7 @@ def main(experiment = "Blend", RW = False):
             fmax = np.max(fit_arr)
             av_dist, min_dist, max_dist= population_diversity(pop)
             # Print EA progress
+            print(experiment)
             print(f"{'NGEN':>3} {'n_pop':>7} {'average':>10.4} {'std':>10.4} {'min':>10.4} {'max':>10.4} {'av_dist.':>10.7} {'min_dist':>10.7} {'max_dist':>10.7}")
             print(f"{gen + 1:>3} {len(offspring):>7} {avg:>10.4f} {std:>10.4f} {fmin:>10.4f} {fmax:>10.4f} {av_dist:>10.7f} {min_dist:>10.7f} {max_dist:>10.7f}")
             # Save statistics
