@@ -601,12 +601,12 @@ if __name__ == "__main__":
     blend_best_fits = np.mean(np.reshape(blend_best_fits, shape=(3, NGEN)), axis=0)
     blend_averages = np.mean(np.reshape(blend_averages, shape=(3, NGEN)), axis=0)
     blend_stds = np.mean(np.reshape(blend_stds, shape=(3, NGEN)), axis = 0)
-    plot_A2(rw_best_fits, rw_averages, rw_stds, "Blend_CO_3_runs")
+    plot_A2(blend_best_fits, blend_averages, blend_stds, "Blend_CO_3_runs")
     
     arithmetic_best_fits = np.mean(np.reshape(arithmetic_best_fits, shape=(3, NGEN)), axis=0)
     arithmetic_averages = np.mean(np.reshape(arithmetic_averages, shape=(3, NGEN)), axis=0)
     arithmetic_stds = np.mean(np.reshape(arithmetic_stds, shape=(3, NGEN)), axis = 0)
-    plot_A2(rw_best_fits, rw_averages, rw_stds, "Arithmetic_CO_3_runs")
+    plot_A2(arithmetic_best_fits, arithmetic_averages, arithmetic_stds, "Arithmetic_CO_3_runs")
 
     
     
