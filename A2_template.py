@@ -26,6 +26,49 @@ import torch
 import torch.nn as nn
 import multiprocessing as mp
 
+G_MODEL = None
+G_DATA = None
+G_TO_TRACK = None
+G_NN = None
+G_GOAL = None 
+
+def worker_init(goal_xy, hidden_dim, n_layers, seed=None):
+    """Runs once per worker: build world+robot, compile model, allocate data, bind geoms, build NN."""
+    import os, numpy as np, torch, mujoco
+    from ariel.simulation.environments.simple_flat_world import SimpleFlatWorld
+    from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
+
+    global G_MODEL, G_DATA, G_TO_TRACK, G_NN, G_GOAL
+
+    # per-worker seeds (optional)
+    if seed is not None:
+        pid_seed = (seed ^ (os.getpid() & 0xFFFFFFFF))
+        np.random.seed(pid_seed)
+        torch.manual_seed(pid_seed)
+
+    # build world + robot, then compile ONCE in this worker
+    world = SimpleFlatWorld()
+    gecko_core = gecko()
+    world.spawn(gecko_core.spec, spawn_position=[0, 0, 0])
+    G_MODEL = world.spec.compile()
+    G_DATA = mujoco.MjData(G_MODEL)
+
+    # bind tracked geom once (e.g., "core")
+    geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
+    G_TO_TRACK = [G_DATA.bind(g) for g in geoms if "core" in g.name]
+
+    # build NN with correct I/O dims
+    input_dim = len(G_DATA.qvel)
+    output_dim = G_MODEL.nu
+    G_NN = NeuralNet(input_dim=input_dim, output_dim=output_dim,
+                     n_layers=n_layers, hidden_dim=hidden_dim)
+    G_NN.eval()
+    torch.set_grad_enabled(False)
+    torch.set_num_threads(1)
+
+    # store goal
+    G_GOAL = np.asarray(goal_xy, dtype=float)
+
 class NeuralNet(nn.Module):
     """
     Neural Network class specification
@@ -166,57 +209,47 @@ def show_qpos_history(history:list):
     print("Saved plot to trajectory.png")
 
 
-def evaluateInd(individual, NN):
+def evaluateInd(individual):
     """ Simulate individual and evaluate fitness """
     history = []
     
     # Generate world and robot
+    mujoco.mj_resetData(G_MODEL, G_DATA)
     mujoco.set_mjcb_control(None) 
-    world = SimpleFlatWorld()
-    gecko_core = gecko()
-    world.spawn(gecko_core.spec, spawn_position=[0, 0, 0])
-    model = world.spec.compile()
-    data = mujoco.MjData(model)
-    geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
-    to_track = [data.bind(geom) for geom in geoms if "core" in geom.name]
     
     # Decode genotype and assign weights to network
-    assign_weights(NN, individual)
+    assign_weights(G_NN, individual)
+    
+    to_track = G_TO_TRACK
     
     # Start simulation
-    mujoco.set_mjcb_control(lambda m, d: controller(m, d, to_track, NN, history))
+    mujoco.set_mjcb_control(lambda m, d: controller(m, d, to_track, G_NN, history))
     simulation_time = 20
     
-    while data.time < simulation_time:
-        mujoco.mj_step(model, data, nstep= 100)
+    while G_DATA.time < simulation_time:
+        mujoco.mj_step(G_MODEL, G_DATA, nstep= 100)
     
     # Evaluate fitness
     final_pos = np.array(history)[-1, :2]
-    fitness = distance_to_target(final_pos, GOAL)
+    fitness = distance_to_target(final_pos, G_GOAL)
     return (float(fitness), )
 
-def renderBest(individual, NN):
+def renderBest(individual):
     """ Render the simulation of the robot """
     history = []
     
     # Decode genotype and assign weights
-    assign_weights(NN, individual)
+    assign_weights(G_NN, individual)
+    mujoco.mj_resetData(G_MODEL, G_DATA)
+    mujoco.set_mjcb_control(None) 
     
-    # Generate world and robot
-    mujoco.set_mjcb_control(None)
-    world = SimpleFlatWorld()
-    gecko_core = gecko()
-    world.spawn(gecko_core.spec, spawn_position=[0, 0, 0])
-    model = world.spec.compile()
-    data = mujoco.MjData(model)
-    geoms = world.spec.worldbody.find_all(mujoco.mjtObj.mjOBJ_GEOM)
-    to_track = [data.bind(geom) for geom in geoms if "core" in geom.name]
+    to_track = G_TO_TRACK
     
     # Start simulation and render
-    mujoco.set_mjcb_control(lambda m,d: controller(m, d, to_track, NN, history))
+    mujoco.set_mjcb_control(lambda m,d: controller(m, d, to_track, G_NN, history))
     viewer.launch(
-        model,
-        data,
+        G_MODEL,
+        G_DATA,
     )
     
     # Save position history as "trajectory.png"
@@ -255,8 +288,13 @@ def main():
     torch.manual_seed(SEED)
     
     # Multi-core pool
-    pool = mp.Pool(processes = mp.cpu_count() -1)
-    
+    ctx = mp.get_context("spawn")  # portable across OSes
+    pool = ctx.Pool(
+        processes=max(1, mp.cpu_count() - 1),
+        initializer=worker_init,
+        initargs=(GOAL, HIDDEN_DIM, N_LAYERS, SEED)
+    )
+        
     # Get single robot to get input and output dims ---    
     world = SimpleFlatWorld()
     gecko_core = gecko()  
@@ -305,7 +343,7 @@ def main():
     toolbox.register("select_survivors", tools.selBest, k = POP_SIZE - IMMIGRANTS)
     
     # Set evaluation and multi-core processing
-    toolbox.register("evaluate", evaluateInd, NN = NN)
+    toolbox.register("evaluate", evaluateInd) 
     toolbox.register("map", pool.map)
     
     # Initialize population and evaluate initial fitnesses
@@ -360,8 +398,8 @@ def main():
         fmax = np.max(fit_arr)
         av_dist, min_dist, max_dist= population_diversity(pop)
         # Print EA progress
-        print(f"{'NGEN':>3} {'n_pop':>7} {'average':>10.4} {'std':>10.4} {'min':>10.4} {'max':>10.4} {"av dist.":>10.4} {"min dist":>10.4} {"max dist":>10.4}")
-        print(f"{gen:>3} {len(offspring):>7} {avg:>10.4f} {std:>10.4f} {fmin:>10.4f} {fmax:>10.4f} {av_dist:>10.4f} {min_dist:>10.4f} {max_dist:>10.4f}")
+        print(f"{'NGEN':>3} {'n_pop':>7} {'average':>10.4} {'std':>10.4} {'min':>10.4} {'max':>10.4} {'av_dist.':>10.4} {'min_dist':>10.4} {'max_dist':>10.4}")
+        print(f"{gen + 1:>3} {len(offspring):>7} {avg:>10.4f} {std:>10.4f} {fmin:>10.4f} {fmax:>10.4f} {av_dist:>10.4f} {min_dist:>10.4f} {max_dist:>10.4f}")
         # Save statistics
         best_individuals.append(tools.selBest(pop, k=1)[0])
         best_fits.append(tools.selBest(pop, k=1)[0].fitness.values)
@@ -382,12 +420,19 @@ def main():
     pool.join()
 
 if __name__ == "__main__":
+    """
+    For the output:
+    av d: The average euclidean distance between individuals. To measure diversity
+    min: The minimum euclidean distance found
+    max: The maximum euclidean distance found
+    The remaining values are fitness statisticss, population size, and the number of generations passed
+    """
     # GOAL
     GOAL = [0, -3]
     # Set seed
     SEED = 42
     # Elitism and immigrants
-    E = 5
+    E = 3
     IMMIGRANTS = 4
     # Population
     POP_SIZE = 100
@@ -399,8 +444,8 @@ if __name__ == "__main__":
     N_LAYERS = 3
     
     # Probability of crossover and mutation occuring on an individual
-    CXPB = 0.9                             
-    MUTPB = 0.9
+    CXPB = 0.8                          
+    MUTPB = 1
     
     main()
 
