@@ -88,7 +88,7 @@ class NeuralNet(nn.Module):
         
         for _ in range(n_layers):
             layers.append(nn.Linear(x_dim, hidden_dim))
-            layers.append(nn.LayerNorm(hidden_dim))
+            # layers.append(nn.LayerNorm())
             layers.append(activation)
             x_dim = hidden_dim # Continue with hidden sized inputs
         layers.append(nn.Linear(x_dim, output_dim))
