@@ -226,14 +226,23 @@ def evaluateInd(individual):
     
     # Start simulation
     mujoco.set_mjcb_control(lambda m, d: controller(m, d, to_track, G_NN, history))
-    simulation_time = 10
-    
+    simulation_time = 20
+    # jerk_window = 5
+    idx_after_jerk = None
     while G_DATA.time < simulation_time:
+        # t_before = G_DATA.time
         mujoco.mj_step(G_MODEL, G_DATA, nstep= 100)
-    
+        # if idx_after_jerk is None and (t_before < jerk_window <= G_DATA.time):
+        #     idx_after_jerk = len(history) - 1
+
     # Evaluate fitness
+    # x_y = np.asarray(history, float)[:, :2]
+    # goal = np.asarray(G_GOAL, float)
+    # d = np.linalg.norm(x_y - goal, axis=1)
     final_pos = np.array(history)[-1, :2]
-    fitness = distance_to_target(final_pos, G_GOAL)
+    # jerk_stop_pos = np.array(history)[idx_after_jerk, :2]
+    fitness = distance_to_target(final_pos, G_GOAL) 
+    # fitness = float(np.mean(d[idx_after_jerk:]))
     return (float(fitness), )
 
 def evaluateRW(individual):
@@ -249,12 +258,17 @@ def evaluateRW(individual):
     # Start simulation
     mujoco.set_mjcb_control(lambda m, d: random_move(m, d, to_track, history))
     simulation_time = 20
-    
+    # jerk_window = 5
+    # idx_after_jerk = None
     while G_DATA.time < simulation_time:
+        # t_before = G_DATA.time
         mujoco.mj_step(G_MODEL, G_DATA, nstep= 100)
+        # if idx_after_jerk is None and (t_before < jerk_window <= G_DATA.time):
+        #     idx_after_jerk = len(history) - 1
     
     # Evaluate fitness
     final_pos = np.array(history)[-1, :2]
+    # jerk_stop_pos = np.array(history)[idx_after_jerk, :2]
     fitness = distance_to_target(final_pos, G_GOAL)
     return (float(fitness), )
 
@@ -297,8 +311,9 @@ def plot_A2(best, averages, std, name):
     plt.fill_between(x, np.array(averages) - std, averages + std, alpha = 0.2, label="Std")
     plt.xlabel("Generations")
     plt.ylabel("Fitness")
-    plt.legend()
+    plt.legend(loc='upper right')
     plt.savefig(name)
+    plt.close()
 
 def population_diversity(pop):
     """
@@ -354,12 +369,10 @@ def render_video_of_ind(individual, duration = 30, path="./__videos__"):
         duration,
         video_recorder=video_recorder
     )
+
     
 def main(experiment = "Blend", RW = False):
-
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
+    mujoco.set_mjcb_control(None)
     
     # Multi-core pool
     ctx = mp.get_context("spawn")  # portable across OSes
@@ -407,13 +420,13 @@ def main(experiment = "Blend", RW = False):
     
     # Set variation operators
     if experiment == "Blend":
-        toolbox.register("mate", tools.cxBlend, alpha = 0.4) # Blend Crossover
+        toolbox.register("mate", tools.cxBlend, alpha = 0.5) # Blend Crossover
     elif experiment == "Arithmetic":
-        toolbox.register("mate", whole_arithmetic_recomb, alpha = 0.5) # Whole arithmetic crossover
-    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.1, indpb = 0.1)
+        toolbox.register("mate", whole_arithmetic_recomb, alpha = 0.4) # Whole arithmetic crossover
+    toolbox.register("mutate", tools.mutGaussian,mu = 0.0, sigma = 0.15, indpb = 0.15)
     
     # Set selection operators
-    toolbox.register("select_parents", tools.selTournament, tournsize = 2, k = POP_SIZE) 
+    toolbox.register("select_parents", tools.selTournament, tournsize = 3, k = POP_SIZE) 
     toolbox.register("select_survivors", tools.selBest, k = POP_SIZE - IMMIGRANTS)
     
     # Set evaluation and multi-core processing
@@ -540,36 +553,39 @@ if __name__ == "__main__":
     max: The maximum euclidean distance found
     The remaining values are fitness statisticss, population size, and the number of generations passed
     """
-    
+    SEED = 42
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
     # GOAL
     GOAL = [0, -3]
     # Set seed
-    SEED = 42
+
     # Elitism and immigrants
-    E = 0
+    E = 1
     IMMIGRANTS = 0
     # Population
     POP_SIZE = 100
     # Number of Generations
-    NGEN = 20
+    NGEN = 200
 
     # Network Specifications
     HIDDEN_DIM = 128
     N_LAYERS = 3
 
     # Probability of crossover and mutation occuring on an individual
-    CXPB = 0.7                          
-    MUTPB = 0.4
+    CXPB = 0.5                    
+    MUTPB = 0.5
     
     # Testing
-    TESTING = False
+    TESTING = True
     
     if TESTING:
         _, _, _, best_ind = main(experiment="Blend")
 
     
     # Assignment plotting
-    ASSIGNMENT_PLOT = True
+    ASSIGNMENT_PLOT = False
     
     if ASSIGNMENT_PLOT:
         rw_best_fits = []
@@ -582,13 +598,10 @@ if __name__ == "__main__":
         arithmetic_averages = []
         arithmetic_stds = []
         
-        for _ in range(3):
-            best_fit, averages, stds, best_ind = main(RW=True)
-            rw_best_fits.append(best_fit)
-            rw_averages.append(averages)
-            rw_stds.append(stds)
+
         for _ in range(3):
             best_fit, averages, stds, best_ind = main(experiment = "Blend")
+            mujoco.set_mjcb_control(None)
             blend_best_fits.append(best_fit)
             blend_averages.append(averages)
             blend_stds.append(stds)
@@ -597,6 +610,12 @@ if __name__ == "__main__":
             arithmetic_best_fits.append(best_fit)
             arithmetic_averages.append(averages)
             arithmetic_stds.append(stds)
+            
+        for _ in range(3):
+            best_fit, averages, stds, best_ind = main(RW=True)
+            rw_best_fits.append(best_fit)
+            rw_averages.append(averages)
+            rw_stds.append(stds)
             
         rw_best_fits = np.mean(np.reshape(rw_best_fits, shape=(3, NGEN)), axis=0)
         rw_averages = np.mean(np.reshape(rw_averages, shape=(3, NGEN)), axis=0)
