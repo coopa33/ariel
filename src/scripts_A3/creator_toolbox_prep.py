@@ -31,7 +31,7 @@ def ensure_deap_types(maximize = True):
     return fit_type, ind_type    
 
 
-def register_pop_factories(
+def register_factories(
     t : base.Toolbox,
     ind_type : type,
     init_func : Callable[..., float],
@@ -75,10 +75,10 @@ if __name__=="__main__":
     func_uniform = partial(random.uniform, -2, 2)
     
     # Make the functions (factories) for generating individuals
-    register_pop_factories(
+    register_factories(
         toolbox, ind_type, func_gauss, 
         "attr_float", "IndividualBrain", "PopulationBrain", 10)
-    register_pop_factories(
+    register_factories(
         toolbox, ind_type, func_uniform, 
         "attr_float", "IndividualBody", "PopulationBody", 5)
     
