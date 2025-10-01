@@ -40,20 +40,20 @@ def crossover_robot_body(parent1, parent2, alpha):
     return offspring1, offspring2
 
 
-def fitness_evalutation(position, origin = [0,0,0.1]):
+def fitness_evalutation(current, target = [5,0,0.5]):
     """
-    Calclulates the Euclidian distance between the robots starting and final
-    position after the simulation. This fitness value should be minimized.
+    Calclulates the Euclidian distance between the robots current position and the target position.
+    This fitness value should be minimized.
 
     Parameters
     ----------
-    position : list 
+    current : list 
         Robots position after the simulation, coordinates [x,y,z]
-    origin : list
-        Robots position at the begining of the simulation, default [0,0,0.1]
+    target : list
+        Robots target position, default [5,0,0.5]
     """
-    distance = np.sqrt((position[0] - origin[0])**2 + (position[1] - origin[1])**2)
-    return distance
+    fitness = np.sqrt((current[0] - target[0])**2 + (current[1] - target[1])**2)
+    return fitness
 
 
 
