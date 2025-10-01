@@ -44,13 +44,13 @@ def register_factories(
     Creates DEAP toolbox function to generate an allele, an individual, and a population. The distribution 
     to sample the value of each allele from can be specified. Alleles are assumed to be floats. 
     Args:
-        t : DEAP toolbox,
-        ind_type : The individual class/type, 
-        init_func : The function to sample alleles from
-        t_attr_name : The name for the sampling function to be set in toolbox
-        t_ind_name : The name for the individual generating function to be set in the toolbox
-        t_pop_name : The name for the population generating function to be set in the toolbox
-        k : The number of alleles per individual
+        t :             DEAP toolbox,
+        ind_type :      The individual class/type, 
+        init_func :     The function to sample alleles from
+        t_attr_name :   The name for the sampling function to be set in toolbox
+        t_ind_name :    The name for the individual generating function to be set in the toolbox
+        t_pop_name :    The name for the population generating function to be set in the toolbox
+        k :             The number of alleles per individual
     """
 
     if not hasattr(t, t_attr_name):
