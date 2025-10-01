@@ -87,9 +87,7 @@ def fitness_function(history: list[float]) -> float:
 
 
 def show_xpos_history(history: list[float]) -> None:
-    # DEBUG
-    print("Plotter called")
-    
+
     # Create a tracking camera
     camera = mj.MjvCamera()
     camera.type = mj.mjtCamera.mjCAMERA_FREE
@@ -280,13 +278,14 @@ def evaluate_robot(
         mode = experiment_mode
     )
     
+    # show_xpos_history(tracker.history["xpos"][0])
+    
     # Return fitness
     return (fitness_function(tracker.history["xpos"][0]), )
 
 def main() -> None:
     """Entry point."""
     # ? ------------------------------------------------------------------ #
-
     genotype_size = 64
     type_p_genes = RNG.random(genotype_size).astype(np.float32)
     conn_p_genes = RNG.random(genotype_size).astype(np.float32)
