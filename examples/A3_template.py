@@ -87,7 +87,6 @@ def fitness_function(history: list[float]) -> float:
 
 
 def show_xpos_history(history: list[float]) -> None:
-
     # Create a tracking camera
     camera = mj.MjvCamera()
     camera.type = mj.mjtCamera.mjCAMERA_FREE
