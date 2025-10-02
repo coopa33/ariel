@@ -32,13 +32,13 @@ def ensure_deap_types(maximize = True):
 
 
 def register_factories(
-    t : base.Toolbox,
-    ind_type : type,
-    init_func : Callable[..., float],
-    t_attr_name : str,
-    t_ind_name : str,
-    t_pop_name : str,
-    k : int = 10
+    t :             base.Toolbox,
+    ind_type :      type,
+    init_func :     Callable[..., float],
+    t_attr_name :   str,
+    t_ind_name :    str,
+    t_pop_name :    str,
+    no_alleles :    int = 10
     ) -> None:
     """
     Creates DEAP toolbox function to generate an allele, an individual, and a population. The distribution 
@@ -56,7 +56,7 @@ def register_factories(
     if not hasattr(t, t_attr_name):
         t.register(t_attr_name, init_func)
     if not hasattr(t, t_ind_name):
-        t.register(t_ind_name, tools.initRepeat, ind_type, getattr(t, t_attr_name), n=k)
+        t.register(t_ind_name, tools.initRepeat, ind_type, getattr(t, t_attr_name), n=no_alleles)
     if not hasattr(t, t_pop_name):
         t.register(t_pop_name, tools.initRepeat, list, getattr(t, t_ind_name))
         

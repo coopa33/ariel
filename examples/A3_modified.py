@@ -354,10 +354,15 @@ def main() -> None:
         experiment_mode =   "simple",
         network_specs =     network_specs
     )
+    toolbox.register(
+        "ParentSelectBrain",
+        tools.selTournament,
+        tournsize = 3
+    )
     
     # ? ------------------------------------------------------------------ #
     ### === Evolutionary Algorithm for Brain ===
-    
+    NGEN = 10
     # Create population
     pop_brain_genotype = toolbox.create_brain_genome_pop(n = 100)
     
@@ -365,12 +370,9 @@ def main() -> None:
     f_brain_genotype = toolbox.map(toolbox.EvaluateRobot, pop_brain_genotype)
     for ind, f in zip(pop_brain_genotype, f_brain_genotype):
         ind.fitness.values = f
-    
-        
+         
     # ? ------------------------------------------------------------------ #
     
-
-
 if __name__ == "__main__":
     main()
     
