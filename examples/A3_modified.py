@@ -222,6 +222,8 @@ def experiment(
             viewer.launch(
                 model=model,
                 data=data,
+                show_left_ui=False, # for Mia laptop
+                show_right_ui=False # for Mia laptop
             )
         case "no_control":
             # If mj.set_mjcb_control(None), you can control the limbs manually.
@@ -334,7 +336,40 @@ def main() -> None:
     
     # Calculate the size of a brain genotype, based on network specs
     ind_size = compute_brain_genome_size(network_specs)
-    
+
+
+    # create whole arithmatic brain crossover function
+    # DO CROSSOVER ALLELE WISE 
+    def crossover_brain(parent1, parent2, alpha=0.4):
+        """Applies whole artihmatic crossover to pairs of brain genotypes (parents)
+        to produce two new brain genotypes (offspring)
+
+        Parameters
+        ----------
+        parent1 : list
+            genotype parent 1
+        parent2 : list
+            genotype parent 2
+        alpha : float, optional
+            weighting factor, by default 0.4
+
+        Returns
+        -------
+        tuple
+            returns a tuple with the genotype of the offspring
+        """
+
+        for i in range(len(parent1)):
+            # arithmetic crossover per allele
+            of1 = alpha * parent1[i] + (1 - alpha) * parent2[i]
+            of2 = (1 - alpha) * parent1[i] + alpha * parent2[i]
+
+            # modify in-place
+            parent1[i] = of1
+            parent2[i] = of2
+        return parent1,parent2
+
+  
     # Register factories and evaluation function
     toolbox = base.Toolbox()
     register_factories(
@@ -351,7 +386,7 @@ def main() -> None:
         evaluate_robot,
         robot_graph =       robot_graph, # This is the phenotyp expression of the body genotype.
         controller_func =   nn_controller,
-        experiment_mode =   "simple",
+        experiment_mode =   "simple", 
         network_specs =     network_specs
     )
     toolbox.register(
@@ -359,17 +394,99 @@ def main() -> None:
         tools.selTournament,
         tournsize = 3
     )
-    
+    toolbox.register(
+        "GaussianMutation",
+        tools.mutGaussian,
+        mu=0, 
+        sigma=0.2,
+        indpb=0.5
+    )
+    toolbox.register(
+        "CrossoverBrain",
+        crossover_brain
+    )
+    toolbox.register(
+        "SurvivorSelection",
+        tools.selBest,
+        k= 100 # THIS SHOULD BE EQUAL TO POP SIZE
+    )
     # ? ------------------------------------------------------------------ #
     ### === Evolutionary Algorithm for Brain ===
-    NGEN = 10
-    # Create population
-    pop_brain_genotype = toolbox.create_brain_genome_pop(n = 100)
+    def run_EA_brain(NGEN, pop_size, MUTPB, CXPB):
+
+        # Initialise the population
+        pop_brain_genotype = toolbox.create_brain_genome_pop(n = pop_size)
+        
+        # Assign each individual a fitness value
+        f_brain_genotype = toolbox.map(toolbox.EvaluateRobot, pop_brain_genotype)
+        for ind, f in zip(pop_brain_genotype, f_brain_genotype):
+            ind.fitness.values = f
+            # print("individual",ind)
+            # print("fitness", f)
+            #print("initial pop",ind.fitness.values)
+
+        for i in range(NGEN):
+            # Select parents
+            parents = toolbox.ParentSelectBrain(pop_brain_genotype, k=pop_size)
+        
+            # crossover parents
+            offspring = [toolbox.clone(ind) for ind in parents]
+
+            # apply crossover to cloned parents
+            for child1, child2 in zip(offspring[::2], offspring[1::2]):
+                if random.random()<CXPB:
+                    toolbox.CrossoverBrain(child1, child2, alpha=0.5)
+                    del child1.fitness.values
+                    del child2.fitness.values
+
+            # apply mutation to children
+            for mutant in offspring:
+                if MUTPB > random.random():
+                    toolbox.GaussianMutation(mutant)
+                    del mutant.fitness.values
+
+            # calclulate fitness offspring
+            for ind in offspring:
+                # do not evaluate robot brains if they already have a fitness
+                if len(ind.fitness.values) == 0:
+                    ind.fitness.values = toolbox.EvaluateRobot(ind)
+            
+            # survival selection
+            combined = pop_brain_genotype + offspring
+            selected=toolbox.SurvivorSelection(combined)
+
+            # visualize the second and last generation fitnesses
+            for ind in selected:
+                if i==NGEN-1 or i==0:
+                    print(f"Gen {i} fitness",ind.fitness.values)
+
+            # replace the population with the selected individuals
+            pop_brain_genotype = selected
+
+        best_ind = tools.selBest(pop_brain_genotype, k=1)[0]
+        return pop_brain_genotype, best_ind
     
-    # Assign each individual a fitness value
-    f_brain_genotype = toolbox.map(toolbox.EvaluateRobot, pop_brain_genotype)
-    for ind, f in zip(pop_brain_genotype, f_brain_genotype):
-        ind.fitness.values = f
+
+    # Run the EA
+    last_pop, best_ind=run_EA_brain(5,100,0.5,1)
+
+
+    # Visualize the best individual in launcher mode
+    print("\nBest fitness:", best_ind.fitness.values)
+    evaluate_robot(
+        brain_genotype=best_ind,
+        robot_graph=robot_graph,
+        controller_func=nn_controller,
+        network_specs=network_specs,
+        experiment_mode="launcher" 
+    )
+
+    
+
+    
+
+
+
          
     # ? ------------------------------------------------------------------ #
     
