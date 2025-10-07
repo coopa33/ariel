@@ -98,6 +98,9 @@ class EABrainConfig:
     cxpb_brain: float = 0.5
     mutpb_brain: float = 0.5
     elites_brain: int = 1
+    # Adaptive parameters
+    use_adaptive_params: bool = True
+    adaptive_strategy: str = "generation_based"  # "generation_based" or "fitness_based"
 
 @dataclass
 class EABodyConfig:
@@ -108,6 +111,9 @@ class EABodyConfig:
     cxpb_body: float = 0.5
     mutpb_body: float = 0.5
     elites_body: int = 1
+    # Adaptive parameters
+    use_adaptive_params: bool = True
+    adaptive_strategy: str = "generation_based"  # "generation_based" or "fitness_based"
 
 
 # --- RANDOM GENERATOR SETUP --- #
@@ -619,6 +625,138 @@ def whole_arithmetic_recomb(ind1, ind2, alpha):
 
     return ind1, ind2    
 
+def calculate_adaptive_brain_params(current_gen, max_gen, config):
+    """
+    Calculate adaptive crossover and mutation probabilities for brain evolution.
+    
+    Strategy: Start with higher mutation for exploration, gradually increase crossover
+    for exploitation as neural networks benefit from combining successful patterns.
+    """
+    if max_gen <= 1:
+        return config.cxpb_brain, config.mutpb_brain
+    
+    # Progress ratio from 0 to 1
+    progress = current_gen / (max_gen - 1)
+    
+    # Adaptive crossover: increase from base to higher values
+    adaptive_cxpb = config.cxpb_brain + (0.8 - config.cxpb_brain) * progress
+    
+    # Adaptive mutation: decrease from base to lower values  
+    adaptive_mutpb = config.mutpb_brain * (1 - 0.6 * progress)
+    
+    # Ensure values stay within reasonable bounds
+    adaptive_cxpb = max(0.1, min(0.9, adaptive_cxpb))
+    adaptive_mutpb = max(0.1, min(0.7, adaptive_mutpb))
+    
+    return adaptive_cxpb, adaptive_mutpb
+
+def calculate_adaptive_body_params(current_gen, max_gen, config):
+    """
+    Calculate adaptive crossover and mutation probabilities for body evolution.
+    
+    Strategy: Body morphology needs balanced exploration/exploitation throughout,
+    but slightly favor mutation early for discovering novel structures.
+    """
+    if max_gen <= 1:
+        return config.cxpb_body, config.mutpb_body
+    
+    # Progress ratio from 0 to 1
+    progress = current_gen / (max_gen - 1)
+    
+    # Adaptive crossover: gradual increase but less aggressive than brain
+    adaptive_cxpb = config.cxpb_body + (0.7 - config.cxpb_body) * progress
+    
+    # Adaptive mutation: gradual decrease but maintain some exploration
+    adaptive_mutpb = config.mutpb_body * (1 - 0.4 * progress)
+    
+    # Ensure values stay within reasonable bounds
+    adaptive_cxpb = max(0.2, min(0.8, adaptive_cxpb))
+    adaptive_mutpb = max(0.2, min(0.6, adaptive_mutpb))
+    
+    return adaptive_cxpb, adaptive_mutpb
+
+def calculate_fitness_based_adaptive_params(population, base_cxpb, base_mutpb):
+    """
+    Alternative adaptive strategy based on population diversity and fitness variance.
+    High diversity = lower crossover, higher mutation
+    Low diversity = higher crossover, lower mutation
+    """
+    if len(population) < 2:
+        return base_cxpb, base_mutpb
+    
+    # Calculate fitness variance as diversity measure
+    fitnesses = [ind.fitness.values[0] for ind in population if ind.fitness.valid]
+    if len(fitnesses) < 2:
+        return base_cxpb, base_mutpb
+    
+    fitness_variance = np.var(fitnesses)
+    fitness_mean = np.mean(fitnesses)
+    
+    # Normalize variance by mean to get relative diversity
+    if fitness_mean > 0:
+        diversity_ratio = fitness_variance / abs(fitness_mean)
+    else:
+        diversity_ratio = 1.0
+    
+    # High diversity (>0.1) = increase mutation, decrease crossover
+    # Low diversity (<0.05) = increase crossover, decrease mutation
+    if diversity_ratio > 0.1:
+        adaptive_cxpb = base_cxpb * 0.8
+        adaptive_mutpb = base_mutpb * 1.3
+    elif diversity_ratio < 0.05:
+        adaptive_cxpb = base_cxpb * 1.2
+        adaptive_mutpb = base_mutpb * 0.7
+    else:
+        adaptive_cxpb = base_cxpb
+        adaptive_mutpb = base_mutpb
+    
+    # Ensure bounds
+    adaptive_cxpb = max(0.1, min(0.9, adaptive_cxpb))
+    adaptive_mutpb = max(0.1, min(0.8, adaptive_mutpb))
+    
+    return adaptive_cxpb, adaptive_mutpb
+
+    return len(identical_pairs)
+
+def demo_adaptive_parameters():
+    """Demonstrate how adaptive parameters change over generations"""
+    print("=== Adaptive Parameter Demonstration ===")
+    
+    # Create sample configs
+    brain_config = EABrainConfig(
+        ngen_brain=5,
+        cxpb_brain=0.5,
+        mutpb_brain=0.5,
+        use_adaptive_params=True
+    )
+    
+    body_config = EABodyConfig(
+        ngen_body=4,
+        cxpb_body=0.5,
+        mutpb_body=0.5,
+        use_adaptive_params=True
+    )
+    
+    print("\nBrain Evolution Adaptive Parameters:")
+    print("Gen | Crossover | Mutation | Strategy")
+    print("----|-----------|----------|----------")
+    for g in range(brain_config.ngen_brain):
+        cxpb, mutpb = calculate_adaptive_brain_params(g, brain_config.ngen_brain, brain_config)
+        print(f" {g:2d} |    {cxpb:.3f}  |   {mutpb:.3f}  | Exploration→Exploitation")
+    
+    print("\nBody Evolution Adaptive Parameters:")
+    print("Gen | Crossover | Mutation | Strategy")
+    print("----|-----------|----------|----------")
+    for g in range(body_config.ngen_body):
+        cxpb, mutpb = calculate_adaptive_body_params(g, body_config.ngen_body, body_config)
+        print(f" {g:2d} |    {cxpb:.3f}  |   {mutpb:.3f}  | Balanced exploration")
+    
+    print("\nKey Benefits:")
+    print("1. Brain: Starts with exploration (high mutation) → ends with exploitation (high crossover)")
+    print("2. Body: More conservative adaptation to preserve viable morphologies")
+    print("3. Automatic parameter tuning based on generation progress")
+    print("4. Can switch to fitness-based adaptation for population diversity control")
+
 def debug_population_diversity(population):
     """Debug function to check for truly identical individuals"""
     identical_pairs = []
@@ -694,7 +832,6 @@ def EA_brain(body_genotype, ea_brain_config, sim_config, ind_type, mode):
     # Calculate the size of a brain genotype, based on network specs
     ind_size = compute_brain_genome_size(network_specs)
     
- 
     
     # Register in toolbox 
     register_factories(
@@ -756,18 +893,39 @@ def EA_brain(body_genotype, ea_brain_config, sim_config, ind_type, mode):
         
         # Go through generations
         for g in range(ea_brain_config.ngen_brain):
+            # Calculate adaptive parameters for this generation
+            if ea_brain_config.use_adaptive_params:
+                if ea_brain_config.adaptive_strategy == "generation_based":
+                    adaptive_cxpb, adaptive_mutpb = calculate_adaptive_brain_params(
+                        current_gen=g, 
+                        max_gen=ea_brain_config.ngen_brain, 
+                        config=ea_brain_config
+                    )
+                elif ea_brain_config.adaptive_strategy == "fitness_based":
+                    adaptive_cxpb, adaptive_mutpb = calculate_fitness_based_adaptive_params(
+                        population=pop_brain_genotype,
+                        base_cxpb=ea_brain_config.cxpb_brain,
+                        base_mutpb=ea_brain_config.mutpb_brain
+                    )
+                else:
+                    adaptive_cxpb, adaptive_mutpb = ea_brain_config.cxpb_brain, ea_brain_config.mutpb_brain
+            else:
+                adaptive_cxpb, adaptive_mutpb = ea_brain_config.cxpb_brain, ea_brain_config.mutpb_brain
+            
+            print(f"Brain Gen {g}: adaptive_cxpb={adaptive_cxpb:.3f}, adaptive_mutpb={adaptive_mutpb:.3f}")
+            
             offspring = toolbox_brain.ParentSelectBrain(pop_brain_genotype, k = ea_brain_config.pop_size_brain)
             offspring = list(map(toolbox_brain.clone, offspring))
             random.shuffle(offspring)
             
-            # Apply variation operators
+            # Apply variation operators with adaptive probabilities
             for child1, child2 in zip(offspring[::2], offspring[1::2]):
-                if random.random() < ea_brain_config.cxpb_brain:
+                if random.random() < adaptive_cxpb:
                     toolbox_brain.MateBrain(child1, child2)
                     del child1.fitness.values
                     del child2.fitness.values
             for mutant in offspring:
-                if random.random() < ea_brain_config.mutpb_brain:
+                if random.random() < adaptive_mutpb:
                     toolbox_brain.MutateBrain(mutant)
                     del mutant.fitness.values
                             
@@ -911,13 +1069,35 @@ def EA_body(
         # Go through generations
         end_generation = start_generation + ea_body_config.ngen_body
         for g in range(start_generation, end_generation):
+            # Calculate adaptive parameters for this generation
+            generation_within_run = g - start_generation
+            if ea_body_config.use_adaptive_params:
+                if ea_body_config.adaptive_strategy == "generation_based":
+                    adaptive_cxpb, adaptive_mutpb = calculate_adaptive_body_params(
+                        current_gen=generation_within_run,
+                        max_gen=ea_body_config.ngen_body,
+                        config=ea_body_config
+                    )
+                elif ea_body_config.adaptive_strategy == "fitness_based":
+                    adaptive_cxpb, adaptive_mutpb = calculate_fitness_based_adaptive_params(
+                        population=pop_body_genotype,
+                        base_cxpb=ea_body_config.cxpb_body,
+                        base_mutpb=ea_body_config.mutpb_body
+                    )
+                else:
+                    adaptive_cxpb, adaptive_mutpb = ea_body_config.cxpb_body, ea_body_config.mutpb_body
+            else:
+                adaptive_cxpb, adaptive_mutpb = ea_body_config.cxpb_body, ea_body_config.mutpb_body
+            
+            print(f"Body Gen {g}: adaptive_cxpb={adaptive_cxpb:.3f}, adaptive_mutpb={adaptive_mutpb:.3f}")
+            
             offspring = toolbox_body.ParentSelectBody(pop_body_genotype, k = ea_body_config.pop_size_body)
             offspring = list(toolbox_body.map(toolbox_body.clone, offspring))
             random.shuffle(offspring)
             
-            # Apply variation operators
+            # Apply variation operators with adaptive probabilities
             for child1, child2 in zip(offspring[::2], offspring[1::2]):
-                if random.random() < ea_body_config.cxpb_body:
+                if random.random() < adaptive_cxpb:
                     toolbox_body.MateBody(child1, child2)
                     del child1.fitness.values
                     del child2.fitness.values
@@ -932,7 +1112,7 @@ def EA_body(
                         del child2.nde
                         
             for mutant in offspring:
-                if random.random() < ea_body_config.mutpb_body:
+                if random.random() < adaptive_mutpb:
                     toolbox_body.MutateBody(mutant)
                     del mutant.fitness.values
                     if hasattr(mutant, 'best_brain'):
@@ -990,22 +1170,27 @@ def main(
     auto_resume = True,
     force_new_run = False):
         
+
     sim_config = replace(sim_config)
     ea_brain_config = EABrainConfig(
         runs_brain = 1,
-        ngen_brain = 2,
+        ngen_brain = 5,
         pop_size_brain = 10,
         cxpb_brain = 0.5,
         mutpb_brain = 0.5,
-        elites_brain = 1
+        elites_brain = 1,
+        use_adaptive_params = True,
+        adaptive_strategy = "generation_based"
     )
     ea_body_config = EABodyConfig(
         runs_body=1,
-        ngen_body=3,
+        ngen_body=5,
         pop_size_body=10,
         cxpb_body=0.5,
         mutpb_body=0.5,
-        elites_body=1
+        elites_body=1,
+        use_adaptive_params = True,
+        adaptive_strategy = "generation_based"
     )
     
     # Set seeds for reproducibility
@@ -1070,24 +1255,27 @@ def main(
     # ? ------------------------------------------------------------------ #
     
 if __name__ == "__main__":
+    # Demonstrate adaptive parameters
+    demo_adaptive_parameters()
+    
     # To automatically resume from last checkpoint
     sim_config = EAConfig(rng_seed=42)
     SIMULATE = False
     if SIMULATE:
-        main(sim_config = sim_config, run_ea = True, read_pop = False, auto_resume=True)
+        main(sim_config = sim_config, run_ea = True, read_pop = False, auto_resume=True, run_id=0)
+
+        #To force a new run (won't overwrite existing runs)
+        # main(run_ea = True, read_pop = False, auto_resume=False, force_new_run=True, sim_config=sim_config)
     
-    # To force a new run (won't overwrite existing runs)
-    # main(run_ea = True, read_pop = False, auto_resume=False, force_new_run=True)
-    
-    # To read and render a specific generation
-    # main(run_ea = False, read_pop = True, generation = 9, run_id = 0)
+        # To read and render a specific generation
+        # main(run_ea = False, read_pop = True, generation = 9, run_id = 0)
     
     # To load a specific generation to analyse:
     RENDER_GEN = True
     if RENDER_GEN:
         pop, best_data = load_population_from_generation(
             sim_config = sim_config,
-            generation = 14,
+            generation = 9,
             run_id = 0
         )
         best_robot = best_data["best_body_genotype"]
