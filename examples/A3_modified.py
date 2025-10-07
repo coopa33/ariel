@@ -694,8 +694,6 @@ def EA_brain(body_genotype, ea_brain_config, sim_config, ind_type, mode):
     # Calculate the size of a brain genotype, based on network specs
     ind_size = compute_brain_genome_size(network_specs)
     
- 
-    
     # Register in toolbox 
     register_factories(
         t=              toolbox_brain,
@@ -794,7 +792,6 @@ def EA_body(
     resume_from_generation = -1,
     resume_run_id = 0
     ):
-
     
     """
     TO-DO:
@@ -967,7 +964,7 @@ def EA_body(
                 pop_body_genotype, 
                 best_body, 
                 best_brain, 
-                run_id = str(current_run_id), 
+                run_id = str(resume_run_id), 
                 sim_config= sim_config)
             
             # Print generation statistics
@@ -1016,21 +1013,36 @@ def main(
         resume_gen = -1
         resume_run = 0
         
-        if auto_resume and not force_new_run:
-            latest_gen = find_latest_generation(sim_config = sim_config, run_id = 0)
-            print(latest_gen)
+        if force_new_run:
+            # Force new run - get next available run ID
+            new_run_id = get_next_run_id(sim_config)
+            print(f"Forcing new run with ID: {new_run_id}")
+            resume_gen = -1
+            resume_run = new_run_id
+            
+        elif auto_resume:
+            # Try to resume from existing run
+            latest_gen = find_latest_generation(sim_config = sim_config, run_id = run_id)
+            print(f"Latest generation found: {latest_gen}")
+            
             if latest_gen >= 0:
                 print(f"Found previous run with data up to generation {latest_gen}")
-                response = input(f"Resume from generation {latest_gen}? (y/n): ")
+                response = input(f"Resume from generation {latest_gen + 1}? (y/n): ")
                 if response == "y":
                     resume_gen = latest_gen
-                    resume_run = 0
+                    resume_run = run_id
                 else:
                     new_run_id = get_next_run_id(sim_config)
                     print(f"Starting new run with ID: {new_run_id}")
                     resume_run = new_run_id
             else:
-                print("No previous run found, starting new run")                
+                print("No previous run found, starting new run with ID: 0")
+                resume_run = 0
+        else:
+            # No auto resume, no force new - use provided run_id
+            print(f"Starting fresh run with ID: {run_id}")
+            resume_run = run_id
+            
         start = time()
         best_robot = EA_body(
             ea_brain_config=ea_brain_config,
@@ -1072,19 +1084,35 @@ def main(
 if __name__ == "__main__":
     # To automatically resume from last checkpoint
     sim_config = EAConfig(rng_seed=42)
-    SIMULATE = False
+    
+    # To run the EA. Choose to resume a run or not. If yes, choose the run to continue.
+    # If no, it will create a new run_{int} where int is the largest next integer.
+    SIMULATE = True
+    RESUME = True
+    RESUME_RUN = 0
+    
+    # To load a specific generation to render. Choose the generation and run:
+    RENDER = False
+    RENDER_GEN = 14
+    RENDER_RUN_ID = 0
+    
     if SIMULATE:
-        main(sim_config = sim_config, run_ea = True, read_pop = False, auto_resume=True)
-    
-    # To force a new run (won't overwrite existing runs)
-    # main(run_ea = True, read_pop = False, auto_resume=False, force_new_run=True)
-    
-    # To read and render a specific generation
-    # main(run_ea = False, read_pop = True, generation = 9, run_id = 0)
-    
-    # To load a specific generation to analyse:
-    RENDER_GEN = True
-    if RENDER_GEN:
+        ### --- To continue an existing run
+        if RESUME:
+            main(
+                sim_config = sim_config, 
+                run_ea = True, 
+                auto_resume=True, 
+                run_id = RESUME_RUN # specify which run to continue
+                )
+        else:
+            main(
+                sim_config = sim_config, 
+                run_ea = True,
+                force_new_run=True
+                )
+
+    if RENDER:
         pop, best_data = load_population_from_generation(
             sim_config = sim_config,
             generation = 14,
