@@ -4,24 +4,14 @@
     "graph": {},
     "nodes": [
         {
-            "type": "BRICK",
-            "rotation": "DEG_315",
-            "id": 16
+            "type": "HINGE",
+            "rotation": "DEG_180",
+            "id": 4
         },
         {
-            "type": "NONE",
-            "rotation": "DEG_0",
-            "id": 10
-        },
-        {
-            "type": "BRICK",
+            "type": "HINGE",
             "rotation": "DEG_90",
-            "id": 12
-        },
-        {
-            "type": "NONE",
-            "rotation": "DEG_0",
-            "id": 19
+            "id": 2
         },
         {
             "type": "CORE",
@@ -29,24 +19,19 @@
             "id": 0
         },
         {
+            "type": "NONE",
+            "rotation": "DEG_0",
+            "id": 8
+        },
+        {
             "type": "BRICK",
             "rotation": "DEG_225",
-            "id": 2
-        },
-        {
-            "type": "NONE",
-            "rotation": "DEG_0",
-            "id": 4
-        },
-        {
-            "type": "NONE",
-            "rotation": "DEG_0",
             "id": 11
         },
         {
-            "type": "BRICK",
-            "rotation": "DEG_45",
-            "id": 14
+            "type": "HINGE",
+            "rotation": "DEG_135",
+            "id": 25
         },
         {
             "type": "BRICK",
@@ -56,84 +41,129 @@
         {
             "type": "NONE",
             "rotation": "DEG_0",
-            "id": 7
+            "id": 29
+        },
+        {
+            "type": "HINGE",
+            "rotation": "DEG_135",
+            "id": 9
+        },
+        {
+            "type": "HINGE",
+            "rotation": "DEG_135",
+            "id": 12
+        },
+        {
+            "type": "HINGE",
+            "rotation": "DEG_315",
+            "id": 24
+        },
+        {
+            "type": "NONE",
+            "rotation": "DEG_0",
+            "id": 20
+        },
+        {
+            "type": "HINGE",
+            "rotation": "DEG_270",
+            "id": 28
         },
         {
             "type": "BRICK",
             "rotation": "DEG_90",
-            "id": 17
-        },
-        {
-            "type": "BRICK",
-            "rotation": "DEG_270",
-            "id": 8
+            "id": 10
         },
         {
             "type": "BRICK",
             "rotation": "DEG_45",
+            "id": 5
+        },
+        {
+            "type": "NONE",
+            "rotation": "DEG_0",
             "id": 1
-        },
-        {
-            "type": "NONE",
-            "rotation": "DEG_0",
-            "id": 13
-        },
-        {
-            "type": "NONE",
-            "rotation": "DEG_0",
-            "id": 6
-        },
-        {
-            "type": "BRICK",
-            "rotation": "DEG_135",
-            "id": 18
         },
         {
             "type": "HINGE",
             "rotation": "DEG_90",
-            "id": 9
+            "id": 26
+        },
+        {
+            "type": "HINGE",
+            "rotation": "DEG_315",
+            "id": 15
         },
         {
             "type": "BRICK",
-            "rotation": "DEG_90",
-            "id": 5
+            "rotation": "DEG_180",
+            "id": 18
+        },
+        {
+            "type": "NONE",
+            "rotation": "DEG_0",
+            "id": 7
+        },
+        {
+            "type": "NONE",
+            "rotation": "DEG_0",
+            "id": 16
         },
         {
             "type": "HINGE",
             "rotation": "DEG_225",
-            "id": 15
+            "id": 27
+        },
+        {
+            "type": "HINGE",
+            "rotation": "DEG_180",
+            "id": 21
+        },
+        {
+            "type": "BRICK",
+            "rotation": "DEG_135",
+            "id": 13
+        },
+        {
+            "type": "HINGE",
+            "rotation": "DEG_45",
+            "id": 17
+        },
+        {
+            "type": "BRICK",
+            "rotation": "DEG_0",
+            "id": 22
+        },
+        {
+            "type": "BRICK",
+            "rotation": "DEG_45",
+            "id": 6
+        },
+        {
+            "type": "NONE",
+            "rotation": "DEG_0",
+            "id": 19
+        },
+        {
+            "type": "HINGE",
+            "rotation": "DEG_0",
+            "id": 14
+        },
+        {
+            "type": "NONE",
+            "rotation": "DEG_0",
+            "id": 23
         }
     ],
     "edges": [
         {
-            "face": "TOP",
-            "source": 16,
-            "target": 10
-        },
-        {
-            "face": "RIGHT",
-            "source": 16,
-            "target": 12
-        },
-        {
-            "face": "BOTTOM",
-            "source": 16,
-            "target": 19
+            "face": "FRONT",
+            "source": 4,
+            "target": 2
         },
         {
             "face": "FRONT",
-            "source": 12,
-            "target": 7
-        },
-        {
-            "face": "LEFT",
-            "source": 0,
-            "target": 16
-        },
-        {
-            "face": "RIGHT",
-            "source": 0,
-            "target": 2
+            "source": 2,
+            "target": 20
         },
         {
             "face": "TOP",
@@ -141,64 +171,134 @@
             "target": 4
         },
         {
-            "face": "BACK",
+            "face": "BOTTOM",
+            "source": 0,
+            "target": 8
+        },
+        {
+            "face": "LEFT",
             "source": 0,
             "target": 11
         },
         {
-            "face": "RIGHT",
-            "source": 2,
-            "target": 14
+            "face": "FRONT",
+            "source": 0,
+            "target": 25
         },
         {
-            "face": "FRONT",
-            "source": 2,
+            "face": "RIGHT",
+            "source": 0,
             "target": 3
         },
         {
-            "face": "LEFT",
-            "source": 14,
-            "target": 17
+            "face": "RIGHT",
+            "source": 11,
+            "target": 29
         },
         {
-            "face": "FRONT",
-            "source": 14,
-            "target": 8
+            "face": "LEFT",
+            "source": 11,
+            "target": 9
+        },
+        {
+            "face": "TOP",
+            "source": 11,
+            "target": 12
         },
         {
             "face": "TOP",
             "source": 3,
-            "target": 18
+            "target": 10
         },
         {
-            "face": "RIGHT",
+            "face": "BOTTOM",
             "source": 3,
-            "target": 9
-        },
-        {
-            "face": "FRONT",
-            "source": 17,
-            "target": 1
-        },
-        {
-            "face": "LEFT",
-            "source": 17,
-            "target": 13
-        },
-        {
-            "face": "LEFT",
-            "source": 8,
             "target": 5
         },
         {
             "face": "FRONT",
-            "source": 8,
-            "target": 15
+            "source": 9,
+            "target": 24
         },
         {
             "face": "FRONT",
-            "source": 1,
+            "source": 24,
+            "target": 28
+        },
+        {
+            "face": "FRONT",
+            "source": 28,
+            "target": 17
+        },
+        {
+            "face": "TOP",
+            "source": 10,
+            "target": 1
+        },
+        {
+            "face": "RIGHT",
+            "source": 10,
+            "target": 26
+        },
+        {
+            "face": "BOTTOM",
+            "source": 10,
+            "target": 15
+        },
+        {
+            "face": "LEFT",
+            "source": 5,
+            "target": 18
+        },
+        {
+            "face": "RIGHT",
+            "source": 5,
+            "target": 7
+        },
+        {
+            "face": "TOP",
+            "source": 5,
+            "target": 16
+        },
+        {
+            "face": "FRONT",
+            "source": 15,
+            "target": 22
+        },
+        {
+            "face": "LEFT",
+            "source": 18,
+            "target": 27
+        },
+        {
+            "face": "TOP",
+            "source": 18,
+            "target": 21
+        },
+        {
+            "face": "FRONT",
+            "source": 27,
+            "target": 13
+        },
+        {
+            "face": "BOTTOM",
+            "source": 22,
             "target": 6
+        },
+        {
+            "face": "TOP",
+            "source": 22,
+            "target": 19
+        },
+        {
+            "face": "LEFT",
+            "source": 22,
+            "target": 14
+        },
+        {
+            "face": "FRONT",
+            "source": 6,
+            "target": 23
         }
     ]
 }
