@@ -11,7 +11,7 @@ from ariel.simulation.environments import OlympicArena
 
 def find_in_out_size(
     robot_graph : Any, 
-    SPAWN_POS : Sequence[float]
+    spawn_pos : Sequence[float]
     ) -> Sequence[int]:
     """Finds out the input and output sizes, based on a robot specification
 
@@ -35,7 +35,7 @@ def find_in_out_size(
 
     # Spawn robot in the world
     # Check docstring for spawn conditions
-    world_test.spawn(core_test.spec, spawn_position=SPAWN_POS)
+    world_test.spawn(core_test.spec, spawn_position=spawn_pos)
 
     # Generate the model and data
     model_test = world_test.spec.compile()
@@ -66,7 +66,8 @@ def compute_brain_genome_size(network_specs):
 def nn_controller(
     model: mj.MjModel,
     data: mj.MjData,
-    matrices
+    matrices,
+    sim_config = None
     ) -> npt.NDArray[np.float64]:
     """ Feedforward neural network controller function
 
@@ -121,3 +122,12 @@ def decode_brain_genotype(brain_genotype, network_specs):
     matrices.append(np.array(brain_genotype[idx:idx+ n_params[2]]).reshape((hidden_size, output_size)))
     
     return matrices
+
+def decode_body_genotype(genotype, genotype_size):
+    idx = 0
+    out = []
+    for _ in range(len(genotype)//genotype_size):
+        gene = np.array(genotype[idx:idx + genotype_size]).astype(np.float32)
+        out.append(gene)
+        idx += genotype_size
+    return out

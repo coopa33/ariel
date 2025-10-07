@@ -50,7 +50,7 @@ def register_factories(
         t_attr_name :   The name for the sampling function to be set in toolbox
         t_ind_name :    The name for the individual generating function to be set in the toolbox
         t_pop_name :    The name for the population generating function to be set in the toolbox
-        k :             The number of alleles per individual
+        no_alleles :    The number of alleles per individual
     """
 
     if not hasattr(t, t_attr_name):
