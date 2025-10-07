@@ -1170,7 +1170,8 @@ if __name__ == "__main__":
     RENDERING
     ---------
     If you want to render the best individual of a given generation and run, specify them.
-    Note that the renderer assumes the default network structure. If you 
+    Note that the renderer assumes the default network structure. If you change the network in main(),
+    you then have to make the same changes to the interface code at the bottom of the script.
     """
     RENDER_GEN = 14
     RENDER_RUN = 0
@@ -1178,7 +1179,7 @@ if __name__ == "__main__":
     """
     INSPECT
     -------
-    To evaluate the best found fitness for a run and generation, set which run and generaion you
+    To evaluate the best found fitness for a run and generation, set which run and generation you
     want to inspect:
     """
     INSPECT_GEN = 1
