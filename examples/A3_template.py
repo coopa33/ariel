@@ -385,7 +385,7 @@ if __name__ == "__main__":
 
     # EA settings (tune these)
     BODY_POP = 30
-    BODY_NGEN = 4
+    BODY_NGEN = 5
     CX_PROB = 0.6
     MUT_PROB = 0.3
     MUT_SIGMA = 0.2  # gaussian sigma for float mutation
@@ -393,7 +393,7 @@ if __name__ == "__main__":
     # Brain settings used to *evaluate* each body (cheap inner loop)
     # You can increase inner_pop/inner_gen for better evaluation (more compute)
     INNER_BRAIN_POP = 30
-    INNER_BRAIN_GEN = 10
+    INNER_BRAIN_GEN = 2
 
     # Setup DEAP types for body individuals
     creator.create("FitnessMax", base.Fitness, weights=(1.0,))
