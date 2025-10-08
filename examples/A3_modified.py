@@ -823,6 +823,7 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
         t_pop_name=     "create_brain_genome_pop",
         no_alleles=     ind_size,
     )
+    toolbox_brain.register("map", futures.map)
     toolbox_brain.register(
         "EvaluateRobot",
         evaluate_robot,
@@ -922,7 +923,7 @@ def EA_body(
     _, ind_type = ensure_deap_types()
     # Create body toolbox
     toolbox_body = base.Toolbox()
-    toolbox_body.register("map", futures.map) 
+    toolbox_body.register("map", map) 
     toolbox_body.register("attr_float", random.random)
     toolbox_body.register("individual", tools.initRepeat, ind_type, toolbox_body.attr_float, n=body_genotype_size)
     toolbox_body.register("make_viable_body", make_viable_body, sim_config=sim_config, base_body_generator=toolbox_body.individual, delta=0.2)
@@ -1163,7 +1164,7 @@ if __name__ == "__main__":
     For starting a new run, set RESUME to False, and the RESUME_RUN parameter 
     is ignored (you can just leave it).
     """
-    RESUME = True
+    RESUME = False
     RESUME_RUN = 0
     
     """
