@@ -990,8 +990,8 @@ def EA_body(
             # Make sure alleles remain within bounds, then assign new nde and robot graphs
             for ind in invalid_ind:
                 for i in range(len(ind)):
-                    if ind[i] < -1.0:
-                        ind[i] = -1.0
+                    if ind[i] < 0.0:
+                        ind[i] = 0.0
                     elif ind[i] > 1.0:
                         ind[i] = 1.0
                 attach_nde_graph(ind, sim_config)
@@ -1041,8 +1041,8 @@ def main(
     ea_brain_config = EABrainConfig(
         # General EA parameters
         runs_brain =            1,
-        ngen_brain =            3,
-        pop_size_brain =        10,
+        ngen_brain =            50,
+        pop_size_brain =        50,
         cxpb_brain =            0.5,
         mutpb_brain =           0.5,
         elites_brain =          1,
@@ -1061,7 +1061,7 @@ def main(
     ea_body_config = EABodyConfig(
         # General EA parameters
         runs_body=              1,
-        ngen_body=              3,
+        ngen_body=              1,
         pop_size_body=          10,
         cxpb_body=              0.5,
         mutpb_body=             0.5,
@@ -1163,7 +1163,7 @@ if __name__ == "__main__":
     For starting a new run, set RESUME to False, and the RESUME_RUN parameter 
     is ignored (you can just leave it).
     """
-    RESUME = False
+    RESUME = True
     RESUME_RUN = 0
     
     """
@@ -1173,7 +1173,7 @@ if __name__ == "__main__":
     Note that the renderer assumes the default network structure. If you change the network in main(),
     you then have to make the same changes to the interface code at the bottom of the script.
     """
-    RENDER_GEN = 14
+    RENDER_GEN = 0
     RENDER_RUN = 0
     
     """
