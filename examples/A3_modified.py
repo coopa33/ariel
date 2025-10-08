@@ -301,7 +301,7 @@ def plot_run_statistics(sim_config, run_id):
     ax.set_ylabel("Fitness")
     ax.legend()
     plt.title(f"Run {run_id} - Fitness over Generations")
-    save_unique_png(fig, path=f"__data__/A3_modified/run_{run_id}_", ext = f".png")
+    save_unique_png(fig, path=f"__data__/A3_modified/run_{run_id}/", ext = f".png")
 
 def save_unique_png(fig, path = "__data__/", ext = ".png"):
     """Function to save plt figures with unique filenames. To prevent
@@ -426,7 +426,7 @@ def diff_distance(history):
         history (list[float]):      The history of positions
     
     Returns:
-        cartesian_distance (float): The distance moved from 2nd second until 
+        cartesian_distance (float): The distance moved from 3rd second until 
                                     the end of the simulation.
     """
     xc, yc = history[2][:2]
@@ -451,6 +451,35 @@ def passed_checkpoint(checkpoint, history):
     xt = checkpoint[0]
     passed_checkpoint = (xc >= xt)
     return passed_checkpoint
+
+### === Spawn Location ===
+def get_spawn_position_for_brain_generation(brain_gen_num: int, sim_config: EAConfig) -> list[float]:
+    """Get spawn position based on brain generation number"""
+    if 0 <= brain_gen_num <= 10:
+        return [-0.8, 0, 0.1]  # normal start
+    elif 11 <= brain_gen_num <= 20:
+        return [1.0, 0, 0.1]   # start on rugged terrain
+    elif 20<brain_gen_num <= 30:
+        return [3, 0, 0.15]  # start bottom of slope
+    else:
+        return [-0.8, 0, 0.1]  # default fallback
+
+# exact same as fitness_function
+def fitness_function_different_spawn(history: list[float], sim_config, brain_gen_number) -> float:
+    """Fitness when spawning at [-0.8, 0, 0.1] - standard distance to target"""
+    xt, yt, zt = sim_config.target_position
+    xc, yc, zc = history[-1]
+
+    if brain_gen_number <= 10:
+        cartesian_distance = np.sqrt((xt - xc) ** 2 + (yt - yc) ** 2 + (zt - zc) ** 2)
+    elif 10<brain_gen_number<=20:
+        cartesian_distance = np.sqrt((xt - (xc-1.8)) ** 2 + (yt - yc) ** 2 + (zt - zc) ** 2)
+    elif 20<brain_gen_number<=30:
+        cartesian_distance = np.sqrt((xt - (xc-3.8)) ** 2 + (yt - yc) ** 2 + (zt - (zc-0.5)) ** 2)
+    else:
+        cartesian_distance = np.sqrt((xt - xc) ** 2 + (yt - yc) ** 2 + (zt - zc) ** 2)
+
+    return -cartesian_distance
     
 
 ### === Controllers === 
@@ -894,13 +923,16 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
     for r in range(ea_brain_config.runs_brain):
         # Create population
         pop_brain_genotype = toolbox_brain.create_brain_genome_pop(n = ea_brain_config.pop_size_brain)
-        # debug_population_diversity(pop_brain_genotype)
         # Assign each individual a fitness value
         f_brain_genotype = list(toolbox_brain.map(toolbox_brain.EvaluateRobot, pop_brain_genotype))
         for ind, f in zip(pop_brain_genotype, f_brain_genotype):
             ind.fitness.values = f
-        print("First gen stats:")
-        print_statistics(pop_brain_genotype)
+        initial_best = tools.selBest(pop_brain_genotype, k = 1)[0]
+        generation_bests = [initial_best.fitness.values[0]]
+        print(f"Initial best brain fitness in run {r}: {initial_best.fitness.values[0]}")
+        # Debug population diversity
+        # print("First gen stats:")
+        # print_statistics(pop_brain_genotype)
         # Go through generations
         for g in range(ea_brain_config.ngen_brain):
             offspring = toolbox_brain.ParentSelectBrain(pop_brain_genotype, k = ea_brain_config.pop_size_brain)
@@ -921,8 +953,20 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
             invalid_fitnesses = list(toolbox_brain.map(toolbox_brain.EvaluateRobot, invalid_ind))
             for ind, fit in zip(invalid_ind, invalid_fitnesses):
                 ind.fitness.values = fit
+                
+            # DEBUG Check if we found better individual
+            gen_best = tools.selBest(pop_brain_genotype + offspring, k = 1)[0]
+            generation_best_fitness = gen_best.fitness.values[0]
+            generation_bests.append(generation_best_fitness)
+            elite = tools.selBest(pop_brain_genotype, k = ea_brain_config.elites_brain)[0]
+            ######
             # Survival selection + Elitism
             pop_brain_genotype[:] = toolbox_brain.SurvivalSelectBrain(offspring + tools.selBest(pop_brain_genotype, k = ea_brain_config.elites_brain))
+            
+            # DEBUG Check if we lost the best individual
+            final_best = tools.selBest(pop_brain_genotype, k = 1)[0]
+            if final_best.fitness.values[0] < max(generation_bests):
+                print(f"ERROR: Lost best fitness. Was {max(generation_bests):.4f}, now {final_best.fitness.values[0]:.4f}")
             print("Brain EA")
             print_statistics(pop_brain_genotype)
         champions.append(tools.selBest(pop_brain_genotype, k = 1)[0])
@@ -1078,7 +1122,7 @@ def main(
         ngen_brain =            50,
         pop_size_brain =        50,
         cxpb_brain =            0.7,
-        mutpb_brain =           0.1,
+        mutpb_brain =           0.2,
         elites_brain =          1,
         # Network structure
         hidden_size=            128,
@@ -1199,8 +1243,8 @@ if __name__ == "__main__":
     For starting a new run, set RESUME to False, and the RESUME_RUN parameter 
     is ignored (you can just leave it).
     """
-    RESUME = False
-    RESUME_RUN = 0
+    RESUME = True
+    RESUME_RUN = 1
     
     """
     RENDERING
@@ -1209,8 +1253,8 @@ if __name__ == "__main__":
     Note that the renderer assumes the default network structure. If you change the network in main(),
     you then have to make the same changes to the interface code at the bottom of the script.
     """
-    RENDER_GEN = 5
-    RENDER_RUN = 0
+    RENDER_GEN = 4
+    RENDER_RUN = 1
     
     """
     INSPECT
@@ -1218,8 +1262,8 @@ if __name__ == "__main__":
     To evaluate the best found fitness for a run and generation, set which run and generation you
     want to inspect:
     """
-    INSPECT_GEN = 1
-    INSPECT_RUN = 0
+    INSPECT_GEN = 5
+    INSPECT_RUN = 1
     
     ### --- Interface code ---
     if SIMULATE:
@@ -1263,11 +1307,11 @@ if __name__ == "__main__":
         )
     if INSPECT:
         # Loading itself should output the best fitness of that gen.
-        # pop, best_data = load_population_from_generation(
-        #     sim_config = sim_config,
-        #     generation = INSPECT_GEN,
-        #     run_id = INSPECT_RUN
-        # )
+        pop, best_data = load_population_from_generation(
+            sim_config = sim_config,
+            generation = INSPECT_GEN,
+            run_id = INSPECT_RUN
+        )
         plot_run_statistics(sim_config, INSPECT_RUN)
 
     
