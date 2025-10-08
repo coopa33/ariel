@@ -1077,8 +1077,8 @@ def main(
         runs_brain =            1,
         ngen_brain =            50,
         pop_size_brain =        50,
-        cxpb_brain =            0.5,
-        mutpb_brain =           0.5,
+        cxpb_brain =            0.7,
+        mutpb_brain =           0.1,
         elites_brain =          1,
         # Network structure
         hidden_size=            128,
@@ -1087,8 +1087,8 @@ def main(
         init_func=              partial(np.random.uniform, -1, 1),
         # Mutation parameters
         gauss_mut_mu=           0.0,
-        gauss_mut_sigma=        0.2,
-        gauss_mut_indpb=        0.2,
+        gauss_mut_sigma=        0.15,
+        gauss_mut_indpb=        0.15,
         # Crossover parameters
         wa_alpha=               0.5,
         # Selection parameters
@@ -1099,15 +1099,15 @@ def main(
         runs_body=              1,
         ngen_body=              1,
         pop_size_body=          10,
-        cxpb_body=              0.5,
-        mutpb_body=             0.5,
+        cxpb_body=              0.7,
+        mutpb_body=             0.1,
         elites_body=            1, # PLEASE note: If no elites, the final generation 
                                    #              of a run might not contain the best
                                    #              individual over the whole run!
         # Mutation parameters 
         gauss_mut_mu=           0.0,
-        gauss_mut_sigma=        0.1,
-        gauss_mut_indpb=        0.3,
+        gauss_mut_sigma=        0.15,
+        gauss_mut_indpb=        0.15,
         # Crossover parameters
         wa_alpha=               0.5,
         # Selection parameters
@@ -1187,9 +1187,9 @@ if __name__ == "__main__":
     But if you are not running the simulation, I would recommend just running it normally, f.e. 
     with uv run, because you do not get these annoying syntax warnings that scoop gives. 
     """
-    SIMULATE = False 
+    SIMULATE = True 
     RENDER = False      
-    INSPECT = True
+    INSPECT = False
 
     """
     SIMULATION
@@ -1199,7 +1199,7 @@ if __name__ == "__main__":
     For starting a new run, set RESUME to False, and the RESUME_RUN parameter 
     is ignored (you can just leave it).
     """
-    RESUME = True
+    RESUME = False
     RESUME_RUN = 0
     
     """
@@ -1209,7 +1209,7 @@ if __name__ == "__main__":
     Note that the renderer assumes the default network structure. If you change the network in main(),
     you then have to make the same changes to the interface code at the bottom of the script.
     """
-    RENDER_GEN = 2
+    RENDER_GEN = 5
     RENDER_RUN = 0
     
     """
