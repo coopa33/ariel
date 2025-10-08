@@ -42,7 +42,7 @@ def find_in_out_size(
     data_test = mj.MjData(model_test)
     
     # Extract input and output sizes
-    input_size = len(data_test.qpos)
+    input_size = len(data_test.qpos) + len(data_test.qvel)
     output_size = model_test.nu
     
     return (input_size, output_size)
@@ -80,7 +80,7 @@ def nn_controller(
         npt.NDArray[np.float64]: Control outputs to hinges
     """
     ## Get inputs, in this case the positions of the actuator motors (hinges)
-    inputs = data.qpos
+    inputs = np.concatenate([data.qpos, data.qvel])
 
     ## Run the inputs through all layers of the network.
     for W in matrices[:-1]:

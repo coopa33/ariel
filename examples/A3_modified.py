@@ -270,6 +270,39 @@ def find_latest_generation(sim_config, run_id):
 
 
 ### === Plotting ===
+def plot_run_statistics(sim_config, run_id):
+    run_dir = sim_config.data / f"run_{run_id}"
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
+    
+    run_means = []
+    run_stds = []
+    run_bests = []
+    for gen_dir in run_dir.iterdir():
+        if gen_dir.is_dir() and gen_dir.name.startswith("generation_"):
+            gen_num = int(gen_dir.name.split("_")[1])
+            pop, best_data = load_population_from_generation(sim_config, gen_num, run_id)
+            mean = np.mean([ind.fitness.values[0] for ind in pop if ind.fitness.valid])
+            std = np.std([ind.fitness.values[0] for ind in pop if ind.fitness.valid])
+            best = best_data.get("body_fitness", None)
+            run_means.append(mean)
+            run_stds.append(std)
+            run_bests.append(best)
+    
+    run_means = np.array(run_means)
+    run_stds = np.array(run_stds)
+    run_bests = np.array(run_bests)
+    x = np.arange(len(run_means))
+    fig, ax = plt.subplots()
+    ax.plot(x, run_means, linestyle = "--", linewidth = 1.5, color = "blue", label = "Mean Fitness")
+    ax.fill_between(x, run_means - run_stds, run_means + run_stds, color="blue", alpha=0.2, label="Std. Dev.")
+    ax.plot(x, run_bests, linestyle = "-", linewidth = 2, color = "red", label = "Best Fitness")
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Fitness")
+    ax.legend()
+    plt.title(f"Run {run_id} - Fitness over Generations")
+    save_unique_png(fig, path=f"__data__/A3_modified/run_{run_id}_", ext = f".png")
+
 def save_unique_png(fig, path = "__data__/", ext = ".png"):
     """Function to save plt figures with unique filenames. To prevent
        overwriting existing plots.
@@ -283,10 +316,10 @@ def save_unique_png(fig, path = "__data__/", ext = ".png"):
         _type_: The path of the saved file
     """
     i = 0
-    filename = f"{path}position{ext}"
+    filename = f"{path}image{ext}"
     while os.path.exists(filename):
         i += 1
-        filename = f"{path}position_{i}{ext}"
+        filename = f"{path}image_{i}{ext}"
     fig.savefig(filename)
     return filename
 
@@ -1044,8 +1077,8 @@ def main(
         runs_brain =            1,
         ngen_brain =            50,
         pop_size_brain =        50,
-        cxpb_brain =            0.5,
-        mutpb_brain =           0.6,
+        cxpb_brain =            0.7,
+        mutpb_brain =           0.1,
         elites_brain =          1,
         # Network structure
         hidden_size=            128,
@@ -1054,27 +1087,29 @@ def main(
         init_func=              partial(np.random.uniform, -1, 1),
         # Mutation parameters
         gauss_mut_mu=           0.0,
-        gauss_mut_sigma=        0.1,
-        gauss_mut_indpb=        0.3,
+        gauss_mut_sigma=        0.15,
+        gauss_mut_indpb=        0.15,
         # Crossover parameters
-        wa_alpha=               0.4
+        wa_alpha=               0.5,
+        # Selection parameters
+        tourn_size=             3
     )
     ea_body_config = EABodyConfig(
         # General EA parameters
         runs_body=              1,
         ngen_body=              1,
         pop_size_body=          10,
-        cxpb_body=              0.5,
-        mutpb_body=             0.5,
+        cxpb_body=              0.7,
+        mutpb_body=             0.1,
         elites_body=            1, # PLEASE note: If no elites, the final generation 
                                    #              of a run might not contain the best
                                    #              individual over the whole run!
         # Mutation parameters 
         gauss_mut_mu=           0.0,
-        gauss_mut_sigma=        0.1,
-        gauss_mut_indpb=        0.3,
+        gauss_mut_sigma=        0.15,
+        gauss_mut_indpb=        0.15,
         # Crossover parameters
-        wa_alpha=               0.4,
+        wa_alpha=               0.5,
         # Selection parameters
         tourn_size=             3,
         )
@@ -1174,7 +1209,7 @@ if __name__ == "__main__":
     Note that the renderer assumes the default network structure. If you change the network in main(),
     you then have to make the same changes to the interface code at the bottom of the script.
     """
-    RENDER_GEN = 0
+    RENDER_GEN = 5
     RENDER_RUN = 0
     
     """
@@ -1228,11 +1263,12 @@ if __name__ == "__main__":
         )
     if INSPECT:
         # Loading itself should output the best fitness of that gen.
-        pop, best_data = load_population_from_generation(
-            sim_config = sim_config,
-            generation = INSPECT_GEN,
-            run_id = INSPECT_RUN
-        )
+        # pop, best_data = load_population_from_generation(
+        #     sim_config = sim_config,
+        #     generation = INSPECT_GEN,
+        #     run_id = INSPECT_RUN
+        # )
+        plot_run_statistics(sim_config, INSPECT_RUN)
 
     
     
