@@ -863,7 +863,7 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
         pop_brain_genotype = toolbox_brain.create_brain_genome_pop(n = ea_brain_config.pop_size_brain)
         # debug_population_diversity(pop_brain_genotype)
         # Assign each individual a fitness value
-        f_brain_genotype = list(map(toolbox_brain.EvaluateRobot, pop_brain_genotype))
+        f_brain_genotype = list(toolbox_brain.map(toolbox_brain.EvaluateRobot, pop_brain_genotype))
         for ind, f in zip(pop_brain_genotype, f_brain_genotype):
             ind.fitness.values = f
         print("First gen stats:")
@@ -871,7 +871,7 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
         # Go through generations
         for g in range(ea_brain_config.ngen_brain):
             offspring = toolbox_brain.ParentSelectBrain(pop_brain_genotype, k = ea_brain_config.pop_size_brain)
-            offspring = list(map(toolbox_brain.clone, offspring))
+            offspring = list(toolbox_brain.map(toolbox_brain.clone, offspring))
             random.shuffle(offspring)
             # Apply variation operators
             for child1, child2 in zip(offspring[::2], offspring[1::2]):
