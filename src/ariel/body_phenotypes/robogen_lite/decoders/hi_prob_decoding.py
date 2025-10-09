@@ -10,9 +10,9 @@ References
 .. [1] `NetworkX JSON Graph <https://networkx.org/documentation/stable/reference/readwrite/generated/networkx.readwrite.json_graph.tree_data.html#networkx.readwrite.json_graph.tree_data>`_
 Todo
 ----
-    - [ ] for loops to be replaced with vectorized operations
-    - [ ] DiGraph positioning use cartesian coordinates instead of spring layout
-    - [ ] Should probably move the graph functions to a separate script
+- [ ] for loops to be replaced with vectorized operations
+- [ ] DiGraph positioning use cartesian coordinates instead of spring layout
+- [ ] Should probably move the graph functions to a separate script
 """
 
 # Evaluate type annotations in a deferred manner (ruff: UP037)
@@ -94,6 +94,8 @@ class HighProbabilityDecoder:
         DiGraph
             A graph representing the decoded modules and their connections.
         """
+        self._graph: dict[int, ModuleInstance] = {}
+        self.graph: DiGraph[Any] = nx.DiGraph()
         self.type_p_space = type_probability_space
         self.conn_p_space = connection_probability_space
         self.rot_p_space = rotation_probability_space
@@ -280,7 +282,7 @@ def save_graph_as_json(
     if save_file is None:
         return
 
-    data = json_graph.node_link_data(graph, edges="edges")
+    data = json_graph.node_link_data(graph, edges="edges")  # pyright: ignore[reportDeprecated]
     json_string = json.dumps(data, indent=4)
 
     with Path(save_file).open("w", encoding="utf-8") as f:
