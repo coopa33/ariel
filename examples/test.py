@@ -18,7 +18,7 @@ from datetime import datetime
 from dataclasses import field, dataclass, replace
 from typing import List, Callable
 from scoop import futures
-import math 
+import math
 
 # Local libraries
 from ariel import console
@@ -110,7 +110,7 @@ class EABrainConfig:
     gauss_mut_sigma:float=              0.1
     gauss_mut_indpb:float=              0.3
     # Self-adaptive mutation parameters
-    sa_mut_indpb: float = 1.0
+    sa_mut_indpb: float = 1
     sa_mut_sigma0: float = 0.1
     sa_mut_min_sigma: float = 1e-6
     # Crossover parameters
@@ -133,14 +133,14 @@ class EABodyConfig:
     gauss_mut_sigma:float=              0.1
     gauss_mut_indpb:float=              0.3
     # Self-adaptive mutation parameters
-    sa_mut_indpb: float = 1.0
+    sa_mut_indpb: float = 1
     sa_mut_sigma0: float = 0.1
     sa_mut_min_sigma: float = 1e-6
     # Crossover parameters
-    wa_alpha:float=                     0.4
+    wa_alpha: float = 0.4
     # Selection parameters
-    tourn_size:int=                     3
-    
+    tourn_size: int = 3
+
 
 ### === Saving and loading generations, and related functions ===
 def save_generation(
@@ -149,7 +149,8 @@ def save_generation(
     best_body, 
     best_brain, 
     run_id = 0, 
-    sim_config = None):
+    sim_config = None,
+    nde = None):
     """
     Save generation data including population and best performers, to the specified directory.
     The data is saved as follows:
@@ -195,6 +196,7 @@ def save_generation(
         "best_body_genotype": list(best_body),  # Convert to list for serialization
         "best_brain_genotype": list(best_brain) if best_brain is not None else None,
         "body_fitness": best_body.fitness.values[0] if best_body.fitness.valid else None,
+        "nde": nde
     }
     
     with open(gen_dir / "best_performers.pkl", "wb") as f:
@@ -276,7 +278,6 @@ def find_latest_generation(sim_config, run_id):
             except (ValueError, IndexError):
                 continue
     return latest_gen
-
 
 ### === Plotting ===
 def plot_run_statistics(sim_config, run_id):
@@ -438,10 +439,20 @@ def diff_distance(history):
         cartesian_distance (float): The distance moved from 3rd second until 
                                     the end of the simulation.
     """
-    xc, yc = history[2][:2]
+    xc, yc = history[3][:2]
     xt, yt = history[-1][:2]
     cartesian_distance = np.sqrt((xt - xc) ** 2 + (yt - yc) ** 2)
     return cartesian_distance
+
+def fitness_progress(history, sim_config):
+    xt, yt, zt = sim_config.target_position
+    xi, yi, zi = history[0] # Initial position
+    xf, yf, zf = history[-1] # Final position
+    # Calculate initial and final distances to target
+    di = np.sqrt((xt - xi)**2 + (yt - yi)**2 + (zt - zi)**2) + 1e-8  # avoid div by zero
+    df = np.sqrt((xt - xf)**2 + (yt - yf)**2 + (zt - zf)**2)
+    return (di - df) / di 
+    
 
 def passed_checkpoint(checkpoint, history):
     """
@@ -581,8 +592,7 @@ def experiment(
     args: list[Any] = [matrices, sim_config]  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
     kwargs: dict[Any, Any] = {}  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
     mj.set_mjcb_control(
-        lambda m, d: controller.set_control(m, d, *args, **kwargs),
-    )
+        lambda m, d: controller.set_control(m, d, *args, **kwargs), )
     match mode:
         case "simple":
             # This disables visualisation (fastest option)
@@ -591,21 +601,21 @@ def experiment(
                 data,
                 duration=duration,
             )
-            # Continue simulation for robots starting from normal spawn, if they passed checkpoints
-            if sim_config.spawn_position == sim_config.start_normal and passed_checkpoint(sim_config.checkpoint_rugged, controller.tracker.history["xpos"][0]):
-                console.log("Passed checkpoint, continue simulation")
-                continue_simple_runner(
-                    model,
-                    data,
-                    duration = sim_config.duration_rugged
-                )
-            if sim_config.spawn_position == sim_config.start_normal and passed_checkpoint(sim_config.checkpoint_elevated, controller.tracker.history["xpos"][0]):
-                console.log("Passed checkpoint, continue simulation")
-                continue_simple_runner(
-                    model,
-                    data,
-                    duration = sim_config.duration_elevated
-                )
+            # # Continue simulation for robots starting from normal spawn, if they passed checkpoints
+            # if sim_config.spawn_position == sim_config.start_normal and passed_checkpoint(sim_config.checkpoint_rugged, controller.tracker.history["xpos"][0]):
+            #     console.log("Passed checkpoint, continue simulation")
+            #     continue_simple_runner(
+            #         model,
+            #         data,
+            #         duration = sim_config.duration_rugged
+            #     )
+            # if sim_config.spawn_position == sim_config.start_normal and passed_checkpoint(sim_config.checkpoint_elevated, controller.tracker.history["xpos"][0]):
+            #     console.log("Passed checkpoint, continue simulation")
+            #     continue_simple_runner(
+            #         model,
+            #         data,
+            #         duration = sim_config.duration_elevated
+            #     )
         case "frame":
             # Render a single frame (for debugging)
             save_path = str(sim_config.data / "robot.png")
@@ -682,7 +692,7 @@ def evaluate_robot(
     if brain_gen_number is not None:
         fitness = fitness_function_different_spawn(tracker.history["xpos"][0], sim_config = sc, brain_gen_number = brain_gen_number)
     else:
-        fitness = fitness_function(tracker.history["xpos"][0], sim_config = sc)
+        fitness = fitness_progress(tracker.history["xpos"][0], sim_config = sc)
     return (fitness, )
     
     
@@ -757,7 +767,7 @@ def delete_after_variation(ind)-> None:
     if hasattr(ind, 'robot_graph'):
         del ind.robot_graph
             
-def attach_nde_graph(ind, sim_config):
+def attach_nde_graph(ind, sim_config, nde):
     """Attach a new NDE and robot graph to a body genotype as attributes. The robot graph is
        constructed using the newly created nde!
 
@@ -765,16 +775,15 @@ def attach_nde_graph(ind, sim_config):
         ind (DEAP list):            The body genotype
         sim_config (dataclass):     The simulation configuration file
     """
-    ind.nde = NeuralDevelopmentalEncoding(number_of_modules=sim_config.num_of_modules)
-    ind.robot_graph = create_robot_graph(ind, sim_config, ind.nde)
+    ind.robot_graph = create_robot_graph(ind, sim_config, nde)
     
 
 ### === Functions to ensure viable robot bodies ===
 def is_viable_body(
     body_genotype, 
     sim_config, 
-    gate_time = 6.0, 
-    delta_min = 0.05, 
+    gate_time = 10.0, 
+    delta_min = 0.2, 
     mode = "simple", 
     max_fps = None
     ):
@@ -809,7 +818,7 @@ def is_viable_body(
 def make_viable_body(
     base_body_generator, 
     sim_config, 
-    delta = 0.1, 
+    delta = 0.2, 
     mode = "simple"
     ):
     """
@@ -825,7 +834,7 @@ def make_viable_body(
         g (DEAP list): A viable individual body genotype
     """
     g = base_body_generator()
-    while not is_viable_body(g, sim_config = sim_config, gate_time= 5.0, delta_min=delta, mode=mode):
+    while not is_viable_body(g, sim_config = sim_config, gate_time= 10.0, delta_min=delta, mode=mode):
         g = base_body_generator()
     return g
 
@@ -868,9 +877,8 @@ def whole_arithmetic_recomb(ind1, ind2, alpha, eps=1e-8):
     s2_new = []
     for s1, s2 in zip(ind1.sigmas, ind2.sigmas):
         l1, l2 = math.log(max(s1, eps)), math.log(max(s2, eps))
-        mean = math.exp(0.5 * (l1 + l2))
-        s1_new.append(mean)
-        s2_new.append(mean)
+        s1_new.append(math.exp((1-alpha) * l1 + alpha * l2))
+        s2_new.append(math.exp(alpha * l1 + (1-alpha) * l2))
     ind1.sigmas = s1_new
     ind2.sigmas = s2_new
     return ind1, ind2   
@@ -937,14 +945,6 @@ def debug_population_diversity(population):
 
 
 ### === EAs === 
-def _safe_EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
-    try:
-        return EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode)
-    except Exception as e:
-        console.log(f"Brain eval failed: {e}")
-        return ((-1e6,), None)
-
-
 def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
     
     """
@@ -955,6 +955,7 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
     Args:
         robot
     """
+    
     # Create brain toolbox
     toolbox_brain = base.Toolbox()
     # Define the network specifications
@@ -979,31 +980,45 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
     )
     toolbox_brain.register("map", map)
     
-    # def _set_evaluator_for_gen(gen_num: int) -> None:
-    #     def _eval(ind):
-    #         return evaluate_robot(
-    #             brain_genotype =    ind,
-    #             robot_graph =       robot_graph,
-    #             controller_func =   nn_controller,
-    #             experiment_mode =   mode,
-    #             sim_config =        sim_config,
-    #             network_specs =     network_specs,
-    #             initial_duration =  15, 
-    #             brain_gen_number =  gen_num
-    #         )
-    #     toolbox_brain.register("EvaluateRobot", _eval)
+    #### Terrain change within every generation
+    terrains = [
+        [-0.8, 0, 0.1],   # Flat
+        [1.0, 0, 0.1],    # Rugged
+        [3, 0, 0.15],     # Slope
+    ]
+    def eval_multi_terrain(ind, terrains):
+        fitness_scores = []
+        for spawn in terrains:
+            sc = replace(sim_config)
+            sc.spawn_position = spawn
+            fitness = evaluate_robot(
+                brain_genotype =    ind,
+                robot_graph =       robot_graph,
+                controller_func =   nn_controller,
+                experiment_mode =   mode,
+                sim_config =        sc,
+                network_specs =     network_specs,
+                initial_duration =  15,
+                brain_gen_number =  None
+            )
+            fitness_scores.append(fitness[0])
+        avg_fitness = sum(fitness_scores) / len(fitness_scores)
+        return (avg_fitness, )
+    
+    toolbox_brain.register("EvaluateRobot", eval_multi_terrain, terrains = terrains)
     
     
-    toolbox_brain.register(
-        "EvaluateRobot",
-        evaluate_robot,
-        robot_graph =       robot_graph, # This is the phenotyp expression of the body genotype.
-        controller_func =   nn_controller,
-        experiment_mode =   mode,
-        sim_config =        sim_config,
-        network_specs =     network_specs,
-        initial_duration =   15
-    )
+    # toolbox_brain.register(
+    #     "EvaluateRobot",
+    #     evaluate_robot,
+    #     robot_graph =       robot_graph, # This is the phenotyp expression of the body genotype.
+    #     controller_func =   nn_controller,
+    #     experiment_mode =   mode,
+    #     sim_config =        sim_config,
+    #     network_specs =     network_specs,
+    #     initial_duration =   15
+    # )
+    
     toolbox_brain.register(
         "ParentSelectBrain",
         tools.selTournament,
@@ -1039,8 +1054,6 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
     for r in range(ea_brain_config.runs_brain):
         # Create population
         pop_brain_genotype = toolbox_brain.create_brain_genome_pop(n = ea_brain_config.pop_size_brain)
-        # The starting evaluation is always on flat terrain
-        # _set_evaluator_for_gen(0)
         # Assign each individual a fitness value
         f_brain_genotype = list(toolbox_brain.map(toolbox_brain.EvaluateRobot, pop_brain_genotype))
         for ind, f in zip(pop_brain_genotype, f_brain_genotype):
@@ -1048,16 +1061,8 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
         initial_best = tools.selBest(pop_brain_genotype, k = 1)[0]
         generation_bests = [initial_best.fitness.values[0]]
         print(f"Initial best brain fitness in run {r}: {initial_best.fitness.values[0]}")
-        # Debug population diversity
-        # print("First gen stats:")
-        # print_statistics(pop_brain_genotype)
-        
-        current_terrain_idx = 0
-        
         # Go through generations
         for g in range(ea_brain_config.ngen_brain):
-            # _set_evaluator_for_gen(g)
-            # Re-evaluate parent population if terrain changes
             
             offspring = toolbox_brain.ParentSelectBrain(pop_brain_genotype, k = ea_brain_config.pop_size_brain)
             offspring = list(toolbox_brain.map(toolbox_brain.clone, offspring))
@@ -1097,7 +1102,7 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
             print("Brain EA")
             print_statistics(pop_brain_genotype)
         champions.append(tools.selBest(pop_brain_genotype, k = 1)[0])
-    best_brain = tools.selBest(champions, k = 1)[0]
+    best_brain = tools.selBest(champions, k = 1)[0]   
     return best_brain.fitness.values, best_brain
     
 
@@ -1121,6 +1126,8 @@ def EA_body(
     Returns:
         best_of_all(DEAP list):         The best individual across all generations of this EA simulation.
     """
+    # Create NDE
+    nde = NeuralDevelopmentalEncoding(number_of_modules=sim_config.num_of_modules)
     # Define genotype size for body
     body_genotype_size = 3*64
     # Ensure the deap types are in creator
@@ -1128,18 +1135,10 @@ def EA_body(
     # Create body toolbox
     toolbox_body = base.Toolbox()
     toolbox_body.register("map", futures.map) 
-    toolbox_body.register("attr_float", random.gauss, mu=0.0, sigma=0.1)
+    toolbox_body.register("attr_float", random.uniform, -100.0, 100.0)
     toolbox_body.register("individual", tools.initRepeat, ind_type, toolbox_body.attr_float, n=body_genotype_size)
     toolbox_body.register("make_viable_body", make_viable_body, sim_config=sim_config, base_body_generator=toolbox_body.individual, delta=0.2)
     toolbox_body.register("population", tools.initRepeat, list, toolbox_body.make_viable_body)
-    toolbox_body.register(
-        "EvaluateRobotBody",
-        _safe_EA_brain,
-        ea_brain_config=ea_brain_config,
-        sim_config=sim_config,
-        ind_type=ind_type,
-        mode="simple",
-    )
     toolbox_body.register("EvaluateRobotBody", EA_brain, ea_brain_config=ea_brain_config, sim_config=sim_config, ind_type=ind_type, mode="simple")
     toolbox_body.register("ParentSelectBody", tools.selTournament, tournsize=ea_body_config.tourn_size)
     toolbox_body.register("SurvivalSelectBody", tools.selBest, k=ea_body_config.pop_size_body)
@@ -1159,10 +1158,11 @@ def EA_body(
         # If resuming from a generation, load that population
         if resume_from_generation >= 0:
             try:
-                pop_body_genotype, _ = load_population_from_generation(
+                pop_body_genotype, best_data = load_population_from_generation(
                     sim_config = sim_config,
                     generation = resume_from_generation,
                     run_id = resume_run_id)
+                nde = best_data["nde"]
                 start_generation = resume_from_generation + 1
                 print(f"Resuming run {resume_run_id} from generation {start_generation}")
             except FileNotFoundError as e:
@@ -1172,7 +1172,7 @@ def EA_body(
                 start_generation = 0
                 # Evaluate initial population
                 for ind in pop_body_genotype:
-                    attach_nde_graph(ind, sim_config)
+                    attach_nde_graph(ind, sim_config, nde)
                 f_body_genotype = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [ind.robot_graph for ind in pop_body_genotype]))
                 for ind, (f, best_brain) in zip(pop_body_genotype, f_body_genotype):
                     ind.fitness.values = f
@@ -1183,7 +1183,7 @@ def EA_body(
             start_generation = 0
             # Attach an nde and the robot graph created from that nde to each body genome 
             for ind in pop_body_genotype:
-                attach_nde_graph(ind, sim_config)
+                attach_nde_graph(ind, sim_config, nde)
             # Initial population evaluation
             f_body_genotype = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [ind.robot_graph for ind in pop_body_genotype]))
             for ind, (f, best_brain) in zip(pop_body_genotype, f_body_genotype):
@@ -1210,7 +1210,7 @@ def EA_body(
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
             # Make sure alleles remain within bounds, then assign new nde and robot graphs
             for ind in invalid_ind:
-                attach_nde_graph(ind, sim_config)
+                attach_nde_graph(ind, sim_config, nde)
             invalid_fitnesses = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [ind.robot_graph for ind in invalid_ind]))
             for ind, (f, best_brain) in zip(invalid_ind, invalid_fitnesses):
                 ind.fitness.values = f
@@ -1220,7 +1220,7 @@ def EA_body(
             # Save generation data (Note that genotypes are not saved as DEAP lists, only normal lists)
             best_body = tools.selBest(pop_body_genotype, k = 1)[0]
             best_brain = best_body.best_brain
-            save_generation(g, pop_body_genotype, best_body, best_brain, run_id = str(resume_run_id), sim_config= sim_config)
+            save_generation(g, pop_body_genotype, best_body, best_brain, run_id = str(resume_run_id), sim_config= sim_config, nde = nde)
             # Print generation statistics
             print("Body EA")
             print_statistics(pop_body_genotype)
@@ -1258,31 +1258,35 @@ def main(
         # General EA parameters
         runs_brain =            1,
         ngen_brain =            20,
-        pop_size_brain =        10,
+        pop_size_brain =        20,
         cxpb_brain =            0.7,
-        mutpb_brain =           0.7,
+        mutpb_brain =           0.5,
         elites_brain =          1,
         # Network structure
         hidden_size=            64,
         no_hidden_layers=       2,
         # Initialization function for brain genotype
-        init_func=              partial(np.random.uniform, -1, 1),
+        init_func=              partial(np.random.normal, 0, 0.1),
         # Mutation parameters
         gauss_mut_mu=           0.0,
         gauss_mut_sigma=        0.15,
         gauss_mut_indpb=        0.15,
+        # Self-adaptive mutation parameters
+        sa_mut_indpb=           1.0,
+        sa_mut_sigma0=          0.7,
+        sa_mut_min_sigma=       1e-6,
         # Crossover parameters
-        wa_alpha=               0.5,
+        wa_alpha=               0.4,
         # Selection parameters
-        tourn_size=             2
+        tourn_size=             3
     )
     ea_body_config = EABodyConfig(
         # General EA parameters
         runs_body=              1,
-        ngen_body=              30,
+        ngen_body=              1,
         pop_size_body=          10,
         cxpb_body=              0.7,
-        mutpb_body=             0.7,
+        mutpb_body=             0.5,
         elites_body=            1, # PLEASE note: If no elites, the final generation 
                                    #              of a run might not contain the best
                                    #              individual over the whole run!
@@ -1290,10 +1294,14 @@ def main(
         gauss_mut_mu=           0.0,
         gauss_mut_sigma=        0.15,
         gauss_mut_indpb=        0.15,
+        # Self-adaptive mutation parameters
+        sa_mut_indpb=           1.0,
+        sa_mut_sigma0=          0.7,
+        sa_mut_min_sigma=       1e-8,
         # Crossover parameters
-        wa_alpha=               0.5,
+        wa_alpha=               0.4,
         # Selection parameters
-        tourn_size=             3,
+        tourn_size=             2,
         )
     
     ### ---
@@ -1353,7 +1361,7 @@ def main(
 if __name__ == "__main__":
     # Setup main configuration file
     sim_config = EAConfig(rng_seed=42,
-                          start_normal=[1.0, 0.0, 0.1])
+                          start_normal=[-0.8, 0, 0.1])
     
     ##################
     # Main Interface #
@@ -1382,7 +1390,7 @@ if __name__ == "__main__":
     For starting a new run, set RESUME to False, and the RESUME_RUN parameter 
     is ignored (you can just leave it).
     """
-    RESUME = True
+    RESUME = True 
     RESUME_RUN = 3
     
     """
@@ -1392,7 +1400,7 @@ if __name__ == "__main__":
     Note that the renderer assumes the default network structure. If you change the network in main(),
     you then have to make the same changes to the interface code at the bottom of the script.
     """
-    RENDER_GEN = 39
+    RENDER_GEN = 0
     RENDER_RUN = 3
     
     """
@@ -1401,9 +1409,9 @@ if __name__ == "__main__":
     To evaluate the best found fitness for a run and generation, set which run and generation you
     want to inspect:
     """
-    INSPECT_GEN = 2
-    INSPECT_RUN = 2
-    
+    INSPECT_GEN = 3
+    INSPECT_RUN = 3
+
     ### --- Interface code ---
     if SIMULATE:
         
@@ -1451,7 +1459,7 @@ if __name__ == "__main__":
             generation = INSPECT_GEN,
             run_id = INSPECT_RUN
         )
-        plot_run_statistics(sim_config, INSPECT_RUN)
+        # plot_run_statistics(sim_config, INSPECT_RUN)
 
     
     

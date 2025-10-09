@@ -2,17 +2,13 @@
 
 # Standard library
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Tuple
+from typing import TYPE_CHECKING, Any, Literal
 
 import matplotlib.pyplot as plt
 import mujoco as mj
 import numpy as np
 import numpy.typing as npt
 from mujoco import viewer
-import os
-from deap import base, tools
-import random
-from functools import partial
 
 # Local libraries
 from ariel import console
@@ -27,11 +23,9 @@ from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
 from ariel.simulation.controllers.controller import Controller
 from ariel.simulation.environments import OlympicArena
 from ariel.utils.renderers import single_frame_renderer, video_renderer
-from ariel.utils.runners import simple_runner
+from ariel.utils.runners import simple_runner, continue_simple_runner
 from ariel.utils.tracker import Tracker
 from ariel.utils.video_recorder import VideoRecorder
-from scripts_A3.creator_toolbox_prep import ensure_deap_types, register_factories
-from scripts_A3.eval_tools import compute_brain_genome_size, nn_controller, decode_brain_genotype, find_in_out_size
 
 # Type Checking
 if TYPE_CHECKING:
@@ -41,7 +35,7 @@ if TYPE_CHECKING:
 type ViewerTypes = Literal["launcher", "video", "simple", "no_control", "frame"]
 
 # --- RANDOM GENERATOR SETUP --- #
-SEED = 42
+SEED = 2
 RNG = np.random.default_rng(SEED)
 
 # --- DATA SETUP ---
@@ -51,29 +45,16 @@ DATA = CWD / "__data__" / SCRIPT_NAME
 DATA.mkdir(exist_ok=True)
 
 # Global variables
-SPAWN_POS = [-0.8, 0, 0.1]
+START_NORMAL = [-0.8, 0, 0.1]
+START_RUGGED = [1.6, 0, 0.1]
+CHECKPOINT_RUGGED = [0.6, 0, 0.1] 
+CHECKPOINT_ELEVATED = [2.4, 0, 0.1]
+
+SPAWN_POS = START_NORMAL
+
 NUM_OF_MODULES = 30
 TARGET_POSITION = [5, 0, 0.5]
 
-def save_unique_png(fig, path = "__data__/", ext = ".png"):
-    """Function to save plt figures with unique filenames. To prevent
-       overwriting existing plots.
-
-    Args:
-        fig (matplotlib.figure): Figure to save
-        path (str, optional): The path of the directory where the figure 
-                              is to be saved. Defaults to "__data__/".
-
-    Returns:
-        _type_: The path of the saved file
-    """
-    i = 0
-    filename = f"{path}position{ext}"
-    while os.path.exists(filename):
-        i += 1
-        filename = f"{path}position_{i}{ext}"
-    fig.savefig(filename)
-    return filename
 
 def fitness_function(history: list[float]) -> float:
     xt, yt, zt = TARGET_POSITION
@@ -111,7 +92,7 @@ def show_xpos_history(history: list[float]) -> None:
 
     # Setup background image
     img = plt.imread(save_path)
-    fig, ax = plt.subplots()
+    _, ax = plt.subplots()
     ax.imshow(img)
     w, h, _ = img.shape
 
@@ -149,12 +130,43 @@ def show_xpos_history(history: list[float]) -> None:
     plt.title("Robot Path in XY Plane")
 
     # Show results
-    save_unique_png(fig)
-    
+    plt.savefig("__data__/show_xpos")
+    plt.close()
+
+
+def nn_controller(
+    model: mj.MjModel,
+    data: mj.MjData,
+) -> npt.NDArray[np.float64]:
+    # Simple 3-layer neural network
+    input_size = len(data.qpos)
+    hidden_size = 8
+    output_size = model.nu
+
+    # Initialize the networks weights randomly
+    # Normally, you would use the genes of an individual as the weights,
+    # Here we set them randomly for simplicity.
+    w1 = RNG.normal(loc=0.0138, scale=0.5, size=(input_size, hidden_size))
+    w2 = RNG.normal(loc=0.0138, scale=0.5, size=(hidden_size, hidden_size))
+    w3 = RNG.normal(loc=0.0138, scale=0.5, size=(hidden_size, output_size))
+
+    # Get inputs, in this case the positions of the actuator motors (hinges)
+    inputs = data.qpos
+
+    # Run the inputs through the lays of the network.
+    layer1 = np.tanh(np.dot(inputs, w1))
+    layer2 = np.tanh(np.dot(layer1, w2))
+    outputs = np.tanh(np.dot(layer2, w3))
+
+    # Scale the outputs
+    return outputs * np.pi
+
+
+
 def experiment(
     robot: Any,
     controller: Controller,
-    matrices,
+    tracker: Tracker | None = None,
     duration: int = 15,
     mode: ViewerTypes = "viewer",
 ) -> None:
@@ -185,12 +197,16 @@ def experiment(
 
     # Set the control callback function
     # This is called every time step to get the next action.
-    args: list[Any] = [matrices]  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
+    args: list[Any] = []  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
     kwargs: dict[Any, Any] = {}  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
 
     mj.set_mjcb_control(
         lambda m, d: controller.set_control(m, d, *args, **kwargs),
     )
+    def passed_checkpoint(checkpoint, history):
+        xc = history[-1][0]
+        xt = checkpoint[0]
+        return (xc >= xt)
 
     # ------------------------------------------------------------------ #
     match mode:
@@ -201,6 +217,14 @@ def experiment(
                 data,
                 duration=duration,
             )
+            if passed_checkpoint(CHECKPOINT_RUGGED, controller.tracker.history["xpos"][0]):
+                console.log("Passed checkpoint, continue simulation")
+                continue_simple_runner(
+                    model,
+                    data,
+                    duration = 30
+                )
+            
         case "frame":
             # Render a single frame (for debugging)
             save_path = str(DATA / "robot.png")
@@ -232,55 +256,6 @@ def experiment(
             )
     # ==================================================================== #
 
-def evaluate_robot(
-    brain_genotype,
-    robot_graph,
-    controller_func,
-    network_specs,
-    experiment_mode = "simple"
-    ) -> Tuple[float, ] :
-    """
-    Evaluate a single robot fitness based on its performance in the experiment.
-
-    Args:
-        brain_genotype (list): Individual brain genotype
-        robot_graph (Any): The robot specs (body phenotype)
-        controller_func (Callable): The controller function to use
-        network_specs (dict[str, int]): A dictionary including the following keys - 'input_size' 'output_size' 'hidden_size' 'no_hidden_layers'
-        experiment_mode (str): Rendering/simulation mode options. Defaults to "simple".
-
-    Returns:
-        Tuple[float, ]: Fitness score
-    """
-    # Construct robot specs, tracker, and controller
-    robot_spec = construct_mjspec_from_graph(robot_graph)
-    tracker = Tracker(
-        mujoco_obj_to_find =    mj.mjtObj.mjOBJ_GEOM,
-        name_to_bind =          "core"
-    )
-    ctrl = Controller(
-        controller_callback_function=   controller_func,
-        tracker =                       tracker
-    )
-    
-    # Decode genotype to weight matrices
-    w_matrices = decode_brain_genotype(
-        brain_genotype = brain_genotype,
-        network_specs= network_specs)
-    
-    # Run experiment
-    experiment(
-        robot = robot_spec,
-        controller = ctrl,
-        matrices = w_matrices,
-        duration = 15,
-        mode = experiment_mode
-    )
-    
-    # show_xpos_history(tracker.history["xpos"][0])
-    
-    # Return fitness
-    return (fitness_function(tracker.history["xpos"][0]), )
 
 def main() -> None:
     """Entry point."""
@@ -290,14 +265,14 @@ def main() -> None:
     conn_p_genes = RNG.random(genotype_size).astype(np.float32)
     rot_p_genes = RNG.random(genotype_size).astype(np.float32)
 
-    body_genotype = [
+    genotype = [
         type_p_genes,
         conn_p_genes,
         rot_p_genes,
     ]
 
     nde = NeuralDevelopmentalEncoding(number_of_modules=NUM_OF_MODULES)
-    p_matrices = nde.forward(body_genotype)
+    p_matrices = nde.forward(genotype)
 
     # Decode the high-probability graph
     hpd = HighProbabilityDecoder(NUM_OF_MODULES)
@@ -315,62 +290,33 @@ def main() -> None:
     )
 
     # ? ------------------------------------------------------------------ #
-    ### === Preparation for EA Brain ===
-    
-    # DEAP preps
-    _, ind_type = ensure_deap_types()
-    
-    # Initialization distribution
-    func_gauss = partial(random.gauss, 0, 1)
-    
-    # Define the network specifications
-    input_size, output_size = find_in_out_size(robot_graph, SPAWN_POS)
-    network_specs = {
-        "input_size" :          input_size,
-        "output_size" :         output_size,
-        "hidden_size" :         8,
-        "no_hidden_layers" :    2
-    }
-    
-    # Calculate the size of a brain genotype, based on network specs
-    ind_size = compute_brain_genome_size(network_specs)
-    
-    # Register factories and evaluation function
-    toolbox = base.Toolbox()
-    register_factories(
-        t=              toolbox,
-        ind_type=       ind_type,
-        init_func=      func_gauss,
-        t_attr_name=    "attr_float",
-        t_ind_name=     "create_brain_genome",
-        t_pop_name=     "create_brain_genome_pop",
-        no_alleles=     ind_size,
-    )
-    toolbox.register(
-        "EvaluateRobot",
-        evaluate_robot,
-        robot_graph =       robot_graph, # This is the phenotyp expression of the body genotype.
-        controller_func =   nn_controller,
-        experiment_mode =   "simple",
-        network_specs =     network_specs
-    )
-    
+    # Print all nodes
+    core = construct_mjspec_from_graph(robot_graph)
+
     # ? ------------------------------------------------------------------ #
-    ### === Evolutionary Algorithm for Brain ===
-    
-    # Create population
-    pop_brain_genotype = toolbox.create_brain_genome_pop(n = 100)
-    
-    # Assign each individual a fitness value
-    f_brain_genotype = toolbox.map(toolbox.EvaluateRobot, pop_brain_genotype)
-    for ind, f in zip(pop_brain_genotype, f_brain_genotype):
-        ind.fitness.values = f
-    
-        
+    mujoco_type_to_find = mj.mjtObj.mjOBJ_GEOM
+    name_to_bind = "core"
+    tracker = Tracker(
+        mujoco_obj_to_find=mujoco_type_to_find,
+        name_to_bind=name_to_bind,
+    )
+
     # ? ------------------------------------------------------------------ #
-    
+    # Simulate the robot
+    ctrl = Controller(
+        controller_callback_function=nn_controller,
+        # controller_callback_function=random_move,
+        tracker=tracker,
+    )
+
+    experiment(robot=core, controller=ctrl, mode="launcher")
+
+    show_xpos_history(tracker.history["xpos"][0])
+
+    fitness = fitness_function(tracker.history["xpos"][0])
+    msg = f"Fitness of generated robot: {fitness}"
+    console.log(msg)
 
 
 if __name__ == "__main__":
     main()
-    
