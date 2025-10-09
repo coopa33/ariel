@@ -1173,8 +1173,8 @@ def main(
 
     sim_config = replace(sim_config)
     ea_brain_config = EABrainConfig(
-        runs_brain = 1,
-        ngen_brain = 5,
+        runs_brain = 3,
+        ngen_brain = 3,
         pop_size_brain = 10,
         cxpb_brain = 0.5,
         mutpb_brain = 0.5,
@@ -1183,8 +1183,8 @@ def main(
         adaptive_strategy = "generation_based"
     )
     ea_body_config = EABodyConfig(
-        runs_body=1,
-        ngen_body=5,
+        runs_body=2,
+        ngen_body=2,
         pop_size_body=10,
         cxpb_body=0.5,
         mutpb_body=0.5,
@@ -1275,7 +1275,7 @@ if __name__ == "__main__":
     if RENDER_GEN:
         pop, best_data = load_population_from_generation(
             sim_config = sim_config,
-            generation = 9,
+            generation = 59,
             run_id = 0
         )
         best_robot = best_data["best_body_genotype"]
