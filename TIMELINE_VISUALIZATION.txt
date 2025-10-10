@@ -1,0 +1,106 @@
+```
+SIMULATION TIMELINE COMPARISON
+================================
+
+Configuration Values:
+    duration_flat: 15
+    duration_rugged: 30
+    duration_elevated: 55
+
+─────────────────────────────────────────────────────────────────────────────────
+
+CURRENT BEHAVIOR (Absolute Time Interpretation):
+─────────────────────────────────────────────────────────────────────────────────
+
+    0        5        10       15       20       25       30       35       40       45       50       55
+    |--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|
+    [========FLAT TERRAIN======]
+                               [======RUGGED TERRAIN=====]
+                                                          [========ELEVATED TERRAIN========]
+    
+    └─ simple_runner(15)       └─ continue(30)           └─ continue(55)
+       Runs: 0→15 (15s)           Runs: 15→30 (15s)         Runs: 30→55 (25s)
+    
+    TOTAL TIME: 55 seconds
+
+─────────────────────────────────────────────────────────────────────────────────
+
+POSSIBLE ORIGINAL INTENT (Incremental Duration Interpretation):
+─────────────────────────────────────────────────────────────────────────────────
+
+    0        10       20       30       40       50       60       70       80       90      100
+    |--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|
+    [========FLAT=======]
+                       [==============RUGGED TERRAIN==============]
+                                                                   [====================ELEVATED====================]
+    
+    └─ simple_runner(15)       └─ continue(+30)                   └─ continue(+55)
+       Runs: 0→15 (15s)           Runs: 15→45 (30s more)            Runs: 45→100 (55s more)
+    
+    TOTAL TIME: 100 seconds
+
+─────────────────────────────────────────────────────────────────────────────────
+
+DIFFERENCE: 45 seconds (82% more simulation time in incremental version)
+
+─────────────────────────────────────────────────────────────────────────────────
+
+CHECKPOINT LOCATIONS:
+    checkpoint_rugged:   x = 0.6  (should be reached around 15s mark)
+    checkpoint_elevated: x = 2.4  (should be reached around 30s mark)
+
+With ABSOLUTE times (55s total):
+    - Robot has 15s to reach x=0.6  ✓ (if moving ~0.04 units/s)
+    - Robot has 30s total to reach x=2.4  ✓ (if moving ~0.08 units/s)
+
+With INCREMENTAL times (100s total):
+    - Robot has 15s to reach x=0.6  ✓ (same)
+    - Robot has 45s total to reach x=2.4  ✓ (more time, easier to reach)
+    - Robot has 100s total to reach x=5.0 target  ✓ (much more time)
+
+─────────────────────────────────────────────────────────────────────────────────
+
+CODE IMPLEMENTATION:
+─────────────────────────────────────────────────────────────────────────────────
+
+Current (Absolute):                    |  Proposed (Incremental):
+                                       |
+def continue_simple_runner(            |  def continue_simple_runner(
+    model, data,                       |      model, data,
+    duration=10.0,                     |      duration=10.0,
+    steps_per_loop=100):               |      steps_per_loop=100):
+                                       |
+    while data.time < duration:        |      end_time = data.time + duration
+        mujoco.mj_step(...)            |      while data.time < end_time:
+                                       |          mujoco.mj_step(...)
+                                       |
+Example with duration=30:              |  Example with duration=30:
+- If data.time = 15                    |  - If data.time = 15
+- Runs until: data.time = 30           |  - Runs until: data.time = 45
+- Duration added: 15 seconds           |  - Duration added: 30 seconds
+
+─────────────────────────────────────────────────────────────────────────────────
+
+IMPACT ON EVOLUTIONARY ALGORITHM:
+─────────────────────────────────────────────────────────────────────────────────
+
+With 55s simulations (current):
+    • Less time to evolve effective locomotion
+    • Fitness based on shorter distances
+    • Fewer generations needed per run (faster, but less accurate)
+    • May select for "sprinters" rather than "marathon runners"
+
+With 100s simulations (incremental):
+    • More time for robots to demonstrate capabilities
+    • Fitness based on longer distances  
+    • More generations needed per run (slower, but more accurate)
+    • May select for sustained, efficient locomotion
+
+If you expected 100s but got 55s, the EA would appear to "slow down" because:
+    ✗ Robots don't travel as far as expected
+    ✗ Fitness scores are lower than expected
+    ✗ EA makes slower progress toward goals
+    ✗ Fewer robots pass checkpoints
+
+─────────────────────────────────────────────────────────────────────────────────
+```
