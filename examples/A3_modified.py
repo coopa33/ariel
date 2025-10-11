@@ -862,7 +862,7 @@ def whole_arithmetic_recomb(ind1, ind2, alpha, eps=1e-8):
         cross_value_1 = alpha * x2 + (1 - alpha) * x1
         cross_value_2 = (1-alpha) * x2 + alpha * x1
         ind1[i] = cross_value_1
-        ind2[i] = cross_value_2
+        ind2[i] = cr│ ❱ 1182 │   │   │   pop_body_genotype = toolbox_body.population(n = ea_body_config.pop_size_bo │oss_value_2
     # Crossover strategy parameters (sigmas)
     s1_new = []
     s2_new = []
@@ -1127,7 +1127,7 @@ def EA_body(
     _, ind_type = ensure_deap_types()
     # Create body toolbox
     toolbox_body = base.Toolbox()
-    toolbox_body.register("map", futures.map) 
+    toolbox_body.register("map", map) 
     toolbox_body.register("attr_float", random.gauss, mu=0.0, sigma=0.1)
     toolbox_body.register("individual", tools.initRepeat, ind_type, toolbox_body.attr_float, n=body_genotype_size)
     toolbox_body.register("make_viable_body", make_viable_body, sim_config=sim_config, base_body_generator=toolbox_body.individual, delta=0.2)
@@ -1382,7 +1382,7 @@ if __name__ == "__main__":
     For starting a new run, set RESUME to False, and the RESUME_RUN parameter 
     is ignored (you can just leave it).
     """
-    RESUME = True
+    RESUME = False
     RESUME_RUN = 3
     
     """

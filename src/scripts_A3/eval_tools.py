@@ -35,7 +35,7 @@ def find_in_out_size(
 
     # Spawn robot in the world
     # Check docstring for spawn conditions
-    world_test.spawn(core_test.spec, spawn_position=spawn_pos)
+    world_test.spawn(core_test.spec, position=spawn_pos)
 
     # Generate the model and data
     model_test = world_test.spec.compile()
@@ -66,8 +66,7 @@ def compute_brain_genome_size(network_specs):
 def nn_controller(
     model: mj.MjModel,
     data: mj.MjData,
-    matrices,
-    sim_config = None
+    matrices
     ) -> npt.NDArray[np.float64]:
     """ Feedforward neural network controller function
 

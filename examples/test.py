@@ -1,22 +1,26 @@
 """Assignment 3 template code."""
 
 # Standard library
+import networkx as nx
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, Tuple
 import matplotlib.pyplot as plt
 import mujoco as mj
 import numpy as np
 import numpy.typing as npt
-from mujoco import viewer
-import os
+from mujoco import MjSpec, viewer
+import os, time
 from deap import base, tools
 import random
-from functools import partial
+from functools import partial, lru_cache
+import hashlib, json
+from networkx.readwrite import json_graph
 from time import time
 import pickle
 from datetime import datetime
 from dataclasses import field, dataclass, replace
 from typing import List, Callable
+import scoop
 from scoop import futures
 import math
 
@@ -140,6 +144,196 @@ class EABodyConfig:
     wa_alpha: float = 0.4
     # Selection parameters
     tourn_size: int = 3
+    
+@dataclass
+class MujocoModel:
+    robot_graph: nx.DiGraph
+    terrain_data: list = field(default_factory=list)
+    sim_config: EAConfig = None
+    func: Callable = None
+    tracker: Tracker = None
+    ctrl: Controller = None
+        
+    def _generate_mujoco_robot_sim(self,spawn_pos = None):
+        """Generate mujoco simulation state object for a single terrain, to be used in single-terrain
+        evaluation of brains."""
+        # Construct mujoco core module from the model graph, to be used in constructing the model
+        robot = construct_mjspec_from_graph(self.robot_graph)
+        # To be safe, disable control callback
+        mj.set_mjcb_control(None)
+        # Assign the olympic arena as the simulation environment
+        world = OlympicArena()
+        # Spawn robot in the world
+        world.spawn(
+            robot_spec=     robot.spec, 
+            position=       spawn_pos)
+        # Compile to mujoco model
+        model = world.spec.compile()
+        # Create the mutable simulation state
+        data = mj.MjData(model)
+        # Save all, to be exported
+        dictionary = {
+            "robot" :       robot,
+            "world" :       world,
+            "model" :       model,
+            "data" :        data
+        }
+        return dictionary
+    
+    def generate_terrain_simulations(self):
+        """Generate mujoco simulation state object for different terrains, to be used in multi-terrain
+       evaluation of brains."""
+        # Generate data for all terrains
+        terrains = [
+                [-0.8, 0, 0.1],   # Flat
+                [1.0, 0, 0.1],    # Rugged
+                [3, 0, 0.15],     # Slope
+        ]
+        for spawn in terrains:
+            self.terrain_data.append(self._generate_mujoco_robot_sim(spawn_pos = spawn))
+    
+    def checkRunningConditions(self):
+        if self.func is None:
+            raise ValueError("No controller function set! Use setControllerFunction first.")
+        if self.tracker is None or self.ctrl is None:
+            raise ValueError("No tracker or controller set! Use setTrackerController first.")
+        
+    def setControllerFunction(self, func):
+        if self.func is not None:
+            raise ValueError("Controller function already set!")
+        self.func = func
+        
+    def _setTrackerController(self):
+        # Set the tracker to track the core geom of the robot, and set the robot controlls for the callback
+        if self.func is None:
+            raise ValueError("No controller function set! Use setNetworkWeights first.")
+        self.tracker = Tracker(mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM, name_to_bind="core")   
+        self.ctrl = Controller(controller_callback_function=self.func, tracker=self.tracker)
+    
+    def _readySimulation(self, model, data, world, w_matrices):
+        # Reset state and time of simulation
+        mj.mj_resetData(model, data)
+        # Pass the model and data to the tracker
+        self.ctrl.tracker.setup(world.spec, data)
+        # Set the control callback function
+        args: list[Any] = [w_matrices]  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
+        kwargs: dict[Any, Any] = {}  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
+        mj.set_mjcb_control(
+            lambda m, d: self.ctrl.set_control(m, d, *args, **kwargs), )
+        
+    def _run_simulation(self, model, data, mode, duration):
+        match mode:
+            case "simple":
+                # This disables visualisation (fastest option)
+                simple_runner(
+                    model,
+                    data,
+                    duration=duration,
+                )
+            case "simple_checkpoints":
+                simple_runner(
+                    model,
+                    data,
+                    duration=duration,
+                )
+                if self.sim_config.spawn_position == self.sim_config.start_normal and passed_checkpoint(self.sim_config.checkpoint_rugged, self.ctrl.tracker.history["xpos"][0]):
+                    console.log("Passed checkpoint, continue simulation")
+                    continue_simple_runner(
+                        model,
+                        data,
+                        duration = self.sim_config.duration_rugged
+                    )
+                if self.sim_config.spawn_position == self.sim_config.start_normal and passed_checkpoint(self.sim_config.checkpoint_elevated, self.ctrl.tracker.history["xpos"][0]):
+                    console.log("Passed checkpoint, continue simulation")
+                    continue_simple_runner(
+                        model,
+                        data,
+                        duration = self.sim_config.duration_elevated
+                    )
+            case "frame":
+                # Render a single frame (for debugging)
+                save_path = str(self.sim_config.data / "robot.png")
+                single_frame_renderer(model, data, save=True, save_path=save_path)
+            case "video":
+                # This records a video of the simulation
+                path_to_video_folder = str(self.sim_config.data / "videos")
+                video_recorder = VideoRecorder(output_folder=path_to_video_folder)
+                # Render with video recorder
+                video_renderer(
+                    model,
+                    data,
+                    duration=duration,
+                    video_recorder=video_recorder,
+                )
+            case "launcher":
+                # This opens a liver viewer of the simulation
+                viewer.launch(
+                    model=model,
+                    data=data,
+                )
+            case "no_control":
+                # If mj.set_mjcb_control(None), you can control the limbs manually.
+                mj.set_mjcb_control(None)
+                viewer.launch(
+                    model=model,
+                    data=data,
+                )
+    
+    def _decode_brain_genotype(self, genotype, network_specs):
+        """Decode the brain genotype representation into weight matrices
+
+        Args:
+            brain_genotype (list): The genotype representation
+            network_specs (dict): A dict of network specifications, including the following keys - 'input_size' 'output_size' 'hidden_size' 'no_hidden_layers'
+
+        Returns:
+            list: A list of network matrices
+        """
+        ## Get the network specifications 
+        input_size =        network_specs["input_size"]
+        output_size =       network_specs["output_size"]
+        hidden_size =       network_specs["hidden_size"]
+        no_hidden_layers =  network_specs["no_hidden_layers"]
+        
+        ## Preparation for decoding
+        idx = 0
+        matrices = []
+        n_params = [input_size * hidden_size, hidden_size**2, hidden_size * output_size]
+        
+        # Input - Hidden matrix
+        matrices.append(np.array(genotype[idx:idx + n_params[0]]).reshape((input_size, hidden_size)))
+        idx += n_params[0]
+        # Hidden - Hidden matrices
+        for _ in range(no_hidden_layers - 1):
+            matrices.append(np.array(genotype[idx:idx + n_params[1]]).reshape((hidden_size, hidden_size)))
+            idx += n_params[1]
+        # Hidden - Output matrix
+        matrices.append(np.array(genotype[idx:idx+ n_params[2]]).reshape((hidden_size, output_size)))
+        
+        return matrices
+                
+    def evaluate(self, genotype, mode = "simple", duration = 15, network_specs = None):
+        if network_specs is None:
+            raise ValueError("No network specs provided!")
+        # Decode genome to weight matrices
+        w_matrices = self._decode_brain_genotype(genotype, network_specs)
+        f = []
+        
+        for terrain in self.terrain_data:
+            self._setTrackerController()
+            self.checkRunningConditions()
+            self._readySimulation(terrain["model"], terrain["data"], terrain["world"], w_matrices)
+            self._run_simulation(terrain["model"], terrain["data"], mode, duration)
+            f.append(fitness_progress(self.ctrl.tracker.history["xpos"][0], self.sim_config))
+            
+        avg_fitness = sum(f) / len(f)
+        return avg_fitness, 
+    
+    def cleanup(self):
+        self.terrain_data.clear()
+        del self.ctrl
+        del self.tracker
+
 
 
 ### === Saving and loading generations, and related functions ===
@@ -479,7 +673,7 @@ def get_spawn_position_for_brain_generation(brain_gen_num: int, sim_config: EACo
     terrains = [
         [-0.8, 0, 0.1],
         [1.0, 0, 0.1],
-        [3, 0, 0.15],
+        [3.0, 0, 0.15],
     ]
     env_idx = ((brain_gen_num) // 10) % len(terrains)
     return terrains[env_idx]
@@ -553,10 +747,10 @@ def rw_controller(
 
 ### === Experiment and Brain Evaluation ===  
 def experiment(
-    robot: Any,
     controller: Controller,
     matrices,
     sim_config,
+    muj_data,
     duration: int = 15,
     mode: ViewerTypes = "viewer",
 ) -> None:
@@ -574,20 +768,24 @@ def experiment(
         duration (int):             The duration of the simulation
         mode (ViewerTypes):         The mode to use for the simulation
     """
-    # Initialise controller to controller to None, always in the beginning.
-    mj.set_mjcb_control(None)  # DO NOT REMOVE
-    # Initialise world
-    world = OlympicArena()
-    # Spawn robot in the world, check docstring for spawn conditions
-    world.spawn(robot.spec, spawn_position=sim_config.spawn_position.copy())
-    # Generate the model and data
-    model = world.spec.compile()
-    data = mj.MjData(model)
+    if muj_data["model"] is None or muj_data["data"] is None:
+        # Initialise controller to controller to None, always in the beginning.
+        mj.set_mjcb_control(None)  # DO NOT REMOVE
+        # Initialise world
+        world = OlympicArena()
+        # Spawn robot in the world, check docstring for spawn conditions
+        world.spawn(muj_data["robot"].spec, position=sim_config.spawn_position.copy())
+        # Generate the model and data
+        model = world.spec.compile()
+        data = mj.MjData(model)
+    else:
+        model = muj_data["model"]
+        data = muj_data["data"]
+        world = muj_data["world"]
     # Reset state and time of simulation
     mj.mj_resetData(model, data)
     # Pass the model and data to the tracker
-    if controller.tracker is not None:
-        controller.tracker.setup(world.spec, data)
+    controller.tracker.setup(world.spec, data)
     # Set the control callback function
     args: list[Any] = [matrices, sim_config]  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
     kwargs: dict[Any, Any] = {}  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
@@ -647,13 +845,12 @@ def experiment(
             
 def evaluate_robot(
     brain_genotype,
-    robot_graph,
     controller_func,
     network_specs,
     sim_config,
+    muj_data,
     experiment_mode = "simple",
     initial_duration = 15,
-    brain_gen_number = None
     ) -> Tuple[float, ] :
     """
     Evaluate a single robot fitness based on its performance in the experiment.
@@ -669,30 +866,23 @@ def evaluate_robot(
     Returns:
         fitness (float, ): DEAP style fitness score
     """
-    # Construct robot specs, tracker, and controller
-    robot_spec = construct_mjspec_from_graph(robot_graph)
-    # Decode genotype to weight matrices
-    w_matrices = decode_brain_genotype(brain_genotype=brain_genotype, network_specs=network_specs)
-    tracker = Tracker(mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM, name_to_bind="core")
     # Make local copy of sim_config, so we don't edit global config
     sc = replace(sim_config)
-    # Change spawn location depending on the generation of Brain EA
-    if brain_gen_number is not None:
-        sc.spawn_position = get_spawn_position_for_brain_generation(brain_gen_number, sc)
-    # Run experiment    
+    # Decode genotype to weight matrices
+    w_matrices = decode_brain_genotype(brain_genotype=brain_genotype, network_specs=network_specs)
+    # Set the tracker to track the core geom of the robot, and set the robot controlls for the callback
+    tracker = Tracker(mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM, name_to_bind="core")   
     ctrl = Controller(controller_callback_function=controller_func, tracker=tracker)
+    # Run the experiment
     experiment(
-        robot =         robot_spec,
         controller =    ctrl,
         matrices =      w_matrices,
         sim_config =    sc,
+        muj_data =      muj_data,
         duration =      initial_duration,
         mode =          experiment_mode)
-    # Return fitness
-    if brain_gen_number is not None:
-        fitness = fitness_function_different_spawn(tracker.history["xpos"][0], sim_config = sc, brain_gen_number = brain_gen_number)
-    else:
-        fitness = fitness_progress(tracker.history["xpos"][0], sim_config = sc)
+
+    fitness = fitness_progress(tracker.history["xpos"][0], sim_config = sc)
     return (fitness, )
     
     
@@ -785,7 +975,6 @@ def is_viable_body(
     gate_time = 10.0, 
     delta_min = 0.2, 
     mode = "simple", 
-    max_fps = None
     ):
     """
     Check whether a body_genotype is able to generate viable bodies for movement.
@@ -803,11 +992,23 @@ def is_viable_body(
     """
     # Create the robot graph and specs
     robot_graph =   create_robot_graph(body_genotype=body_genotype, sim_config = sim_config)
-    robot_spec =    construct_mjspec_from_graph(robot_graph)
+    robot =    construct_mjspec_from_graph(robot_graph)
+    # Create world
+    mj.set_mjcb_control(None)
+    world = OlympicArena()
+    world.spawn(robot.spec, position=sim_config.spawn_position.copy())
+    model = world.spec.compile()
+    data = mj.MjData(model)
+    data_dict = {
+        "robot" : robot,
+        "world" : world,
+        "model" : model,
+        "data" : data
+    }
     # Conduct experiment
     tracker =       Tracker(mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM, name_to_bind="core")
     ctrl =          Controller(controller_callback_function=rw_controller, tracker=tracker)
-    experiment(robot_spec, controller=ctrl, matrices=None, sim_config=sim_config, duration=gate_time, mode=mode)
+    experiment(controller=ctrl, matrices=None, sim_config=sim_config, muj_data = data_dict, duration=gate_time, mode=mode)
     # Check whether robot moves sufficiently to be viable
     xpos =          tracker.history["xpos"][0]
     disp =          diff_distance(xpos)
@@ -833,11 +1034,32 @@ def make_viable_body(
     Returns:
         g (DEAP list): A viable individual body genotype
     """
+    # Generate body genotype and transform to phenotype
     g = base_body_generator()
-    while not is_viable_body(g, sim_config = sim_config, gate_time= 10.0, delta_min=delta, mode=mode):
+    while not is_viable_body(g, sim_config = sim_config, gate_time = 10.0, delta_min=delta, mode=mode):
         g = base_body_generator()
     return g
 
+def _create_single_viable_body(args):
+    base_body_generator, sim_config, delta, mode = args
+    return make_viable_body(
+        base_body_generator=base_body_generator,
+        sim_config=sim_config,
+        delta=delta,
+        mode=mode
+    )
+    
+def create_viable_population_parallel(
+    toolbox,
+    pop_size,
+    base_body_generator,
+    sim_config,
+    delta = 0.2,
+    mode = "simple"
+):
+    worker_args = [(base_body_generator, sim_config, delta, mode) for _ in range(pop_size)]
+    population = list(toolbox.map(_create_single_viable_body, worker_args))
+    return population
 
 ### === Mutation/Crossover Operators ===
 
@@ -909,6 +1131,19 @@ def mut_self_adapt_gaussian(
             
     return (ind, )
 
+def propagate_best_brain(individual, toolbox, sim_config, ea_brain_config):
+    """Fill population with mutated versions of the best individual"""
+    new_population = [toolbox.clone(individual)]  # Keep original
+    
+    # Fill rest of population with mutations of the best individual
+    for _ in range(ea_brain_config.pop_size_brain - 1):
+        mutant = toolbox.clone(individual)
+        mutant.sigmas = [ea_brain_config.sa_mut_sigma0] * len(mutant)
+        mutant, = toolbox.MutateBrain_SelfAdapt(mutant)
+        del mutant.fitness.values
+        new_population.append(mutant)
+    
+    return new_population
 
 ### === Debug ===
 def debug_population_diversity(population):
@@ -942,10 +1177,10 @@ def debug_population_diversity(population):
         print("No truly identical individuals found in initial population")
     n_identical = len(identical_pairs)
     return n_identical
-
-
+        
+        
 ### === EAs === 
-def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
+def EA_brain(body_package, ea_brain_config, sim_config, ind_type, mode):
     
     """
     The main EA algorithm for the brain. Finds the best brain possible for a given
@@ -955,7 +1190,15 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
     Args:
         robot
     """
-    
+    robot_graph, best_brain = body_package
+    # Prepare Mujoco Model and Data for all terrains
+    mm = MujocoModel(
+        robot_graph = robot_graph, 
+        sim_config = sim_config
+    )
+    mm.setControllerFunction(nn_controller)
+    mm.generate_terrain_simulations()
+
     # Create brain toolbox
     toolbox_brain = base.Toolbox()
     # Define the network specifications
@@ -981,44 +1224,37 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
     toolbox_brain.register("map", map)
     
     #### Terrain change within every generation
-    terrains = [
-        [-0.8, 0, 0.1],   # Flat
-        [1.0, 0, 0.1],    # Rugged
-        [3, 0, 0.15],     # Slope
-    ]
-    def eval_multi_terrain(ind, terrains):
-        fitness_scores = []
-        for spawn in terrains:
-            sc = replace(sim_config)
-            sc.spawn_position = spawn
-            fitness = evaluate_robot(
-                brain_genotype =    ind,
-                robot_graph =       robot_graph,
-                controller_func =   nn_controller,
-                experiment_mode =   mode,
-                sim_config =        sc,
-                network_specs =     network_specs,
-                initial_duration =  15,
-                brain_gen_number =  None
-            )
-            fitness_scores.append(fitness[0])
-        avg_fitness = sum(fitness_scores) / len(fitness_scores)
-        return (avg_fitness, )
+    # terrains = [
+    #     [-0.8, 0, 0.1],   # Flat
+    #     [1.0, 0, 0.1],    # Rugged
+    #     [3, 0, 0.15],     # Slope
+    # ]
+    # def eval_multi_terrain(ind, terrains, terrain_data):
+    #     fitness_scores = []
+    #     for spawn, data_dict in zip(terrains, terrain_data):
+    #         sc = replace(sim_config)
+    #         sc.spawn_position = spawn
+    #         fitness = evaluate_robot(
+    #             brain_genotype =    ind,
+    #             controller_func =   nn_controller,
+    #             experiment_mode =   mode,
+    #             sim_config =        sc,
+    #             muj_data =          data_dict,
+    #             network_specs =     network_specs,
+    #             initial_duration =  15,
+    #             brain_gen_number =  None
+    #         )
+    #         fitness_scores.append(fitness[0])
+    #     avg_fitness = sum(fitness_scores) / len(fitness_scores)
+    #     return (avg_fitness, )
     
-    toolbox_brain.register("EvaluateRobot", eval_multi_terrain, terrains = terrains)
-    
-    
-    # toolbox_brain.register(
-    #     "EvaluateRobot",
-    #     evaluate_robot,
-    #     robot_graph =       robot_graph, # This is the phenotyp expression of the body genotype.
-    #     controller_func =   nn_controller,
-    #     experiment_mode =   mode,
-    #     sim_config =        sim_config,
-    #     network_specs =     network_specs,
-    #     initial_duration =   15
-    # )
-    
+    toolbox_brain.register(
+        "EvaluateRobot", 
+        mm.evaluate, 
+        mode = "simple", 
+        duration = 10, 
+        network_specs = network_specs
+    )
     toolbox_brain.register(
         "ParentSelectBrain",
         tools.selTournament,
@@ -1050,20 +1286,20 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
         
     )
     ### === Evolutionary Algorithm for Brain ===
+    # Keep track of champions from each run
     champions = []
     for r in range(ea_brain_config.runs_brain):
-        # Create population
-        pop_brain_genotype = toolbox_brain.create_brain_genome_pop(n = ea_brain_config.pop_size_brain)
+        if best_brain is not None:
+            pop_brain_genotype = propagate_best_brain(best_brain, toolbox_brain, sim_config, ea_brain_config)
+        else:
+            # Create population
+            pop_brain_genotype = toolbox_brain.create_brain_genome_pop(n = ea_brain_config.pop_size_brain)
         # Assign each individual a fitness value
         f_brain_genotype = list(toolbox_brain.map(toolbox_brain.EvaluateRobot, pop_brain_genotype))
         for ind, f in zip(pop_brain_genotype, f_brain_genotype):
-            ind.fitness.values = f
-        initial_best = tools.selBest(pop_brain_genotype, k = 1)[0]
-        generation_bests = [initial_best.fitness.values[0]]
-        print(f"Initial best brain fitness in run {r}: {initial_best.fitness.values[0]}")
+            ind.fitness.values = f        
         # Go through generations
         for g in range(ea_brain_config.ngen_brain):
-            
             offspring = toolbox_brain.ParentSelectBrain(pop_brain_genotype, k = ea_brain_config.pop_size_brain)
             offspring = list(toolbox_brain.map(toolbox_brain.clone, offspring))
             random.shuffle(offspring)
@@ -1078,33 +1314,25 @@ def EA_brain(robot_graph, ea_brain_config, sim_config, ind_type, mode):
                     toolbox_brain.MutateBrain_SelfAdapt(mutant)
                     del mutant.fitness.values
             # Evaluate offspring fitnesses of individuals which had genotypes changed by mating and mutating
-            
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
             invalid_fitnesses = list(toolbox_brain.map(toolbox_brain.EvaluateRobot, invalid_ind))
             for ind, fit in zip(invalid_ind, invalid_fitnesses):
                 ind.fitness.values = fit
-                
-            # DEBUG Check if we found better individual
-            gen_best = tools.selBest(pop_brain_genotype + offspring, k = 1)[0]
-            generation_best_fitness = gen_best.fitness.values[0]
-            generation_bests.append(generation_best_fitness)
-            elite = tools.selBest(pop_brain_genotype, k = ea_brain_config.elites_brain)[0]
-            ##############
             # Survival selection + Elitism
             pop_brain_genotype[:] = toolbox_brain.SurvivalSelectBrain(offspring + tools.selBest(pop_brain_genotype, k = ea_brain_config.elites_brain))
-            
-            # DEBUG Check if we lost the best individual
-            final_best = tools.selBest(pop_brain_genotype, k = 1)[0]
-            if final_best.fitness.values[0] < max(generation_bests):
-                print(f"ERROR: Lost best fitness. Was {max(generation_bests):.4f}, now {final_best.fitness.values[0]:.4f}")
-            ##############
-            
-            print("Brain EA")
+            print(f"Worker {str(scoop.worker)} | Result of Brain EA, generation {g}")
             print_statistics(pop_brain_genotype)
         champions.append(tools.selBest(pop_brain_genotype, k = 1)[0])
     best_brain = tools.selBest(champions, k = 1)[0]   
+    mm.cleanup()
     return best_brain.fitness.values, best_brain
     
+def package_body(ind):
+    if hasattr(ind, 'robot_graph') and hasattr(ind, 'best_brain'):
+        return (ind.robot_graph, ind.best_brain)
+    if hasattr(ind, 'robot_graph') and not hasattr(ind, 'best_brain'):
+        return (ind.robot_graph, None)
+
 
 def EA_body(
     ea_brain_config,
@@ -1168,34 +1396,52 @@ def EA_body(
             except FileNotFoundError as e:
                 print(f"Resume failed: {e}")
                 print("Starting new run instead")
-                pop_body_genotype = toolbox_body.population(n = ea_body_config.pop_size_body)
+                
+                pop_body_genotype = create_viable_population_parallel(
+                    toolbox = toolbox_body,
+                    pop_size = ea_body_config.pop_size_body,
+                    base_body_generator = toolbox_body.individual,
+                    sim_config = sim_config,
+                    delta = 0.2,
+                    mode = "simple"
+                )
+                # pop_body_genotype = toolbox_body.population(n = ea_body_config.pop_size_body)
                 start_generation = 0
                 # Evaluate initial population
                 for ind in pop_body_genotype:
                     attach_nde_graph(ind, sim_config, nde)
-                f_body_genotype = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [ind.robot_graph for ind in pop_body_genotype]))
+                f_body_genotype = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [package_body(ind) for ind in pop_body_genotype]))
                 for ind, (f, best_brain) in zip(pop_body_genotype, f_body_genotype):
                     ind.fitness.values = f
                     ind.best_brain = best_brain
         else:
             # New run
-            pop_body_genotype = toolbox_body.population(n = ea_body_config.pop_size_body)
+            pop_body_genotype = create_viable_population_parallel(
+                    toolbox = toolbox_body,
+                    pop_size = ea_body_config.pop_size_body,
+                    base_body_generator = toolbox_body.individual,
+                    sim_config = sim_config,
+                    delta = 0.2,
+                    mode = "simple"
+                )
+            # pop_body_genotype = toolbox_body.population(n = ea_body_config.pop_size_body)
             start_generation = 0
             # Attach an nde and the robot graph created from that nde to each body genome 
             for ind in pop_body_genotype:
                 attach_nde_graph(ind, sim_config, nde)
             # Initial population evaluation
-            f_body_genotype = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [ind.robot_graph for ind in pop_body_genotype]))
+            f_body_genotype = list(toolbox_body.map(toolbox_body.EvaluateRobotBody,[package_body(ind) for ind in pop_body_genotype]))
             for ind, (f, best_brain) in zip(pop_body_genotype, f_body_genotype):
                 ind.fitness.values = f
                 ind.best_brain = best_brain
-                
         # Go through generations
         end_generation = start_generation + ea_body_config.ngen_body
         for g in range(start_generation, end_generation):
+            
             offspring = toolbox_body.ParentSelectBody(pop_body_genotype, k = ea_body_config.pop_size_body)
             offspring = list(toolbox_body.map(toolbox_body.clone, offspring))
             random.shuffle(offspring)
+            
             # Apply variation operators
             for child1, child2 in zip(offspring[::2], offspring[1::2]):
                 if random.random() < ea_body_config.cxpb_body:
@@ -1206,15 +1452,21 @@ def EA_body(
                 if random.random() < ea_body_config.mutpb_body:
                     toolbox_body.MutateBody_SelfAdapt(mutant)
                     delete_after_variation(mutant)
-            # Select individuals that were modified (previous fitness and graph are invalid now)
+
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            # Make sure alleles remain within bounds, then assign new nde and robot graphs
             for ind in invalid_ind:
                 attach_nde_graph(ind, sim_config, nde)
-            invalid_fitnesses = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [ind.robot_graph for ind in invalid_ind]))
+            valid_ind = [ind for ind in offspring if ind.fitness.valid]
+            
+            invalid_fitnesses = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [package_body(ind) for ind in invalid_ind]))
+            valid_fitnesses = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [package_body(ind) for ind in valid_ind]))
             for ind, (f, best_brain) in zip(invalid_ind, invalid_fitnesses):
                 ind.fitness.values = f
                 ind.best_brain = best_brain
+            for ind, (f, best_brain) in zip(valid_ind, valid_fitnesses):
+                ind.fitness.values = f
+                ind.best_brain = best_brain
+            
             # Survival selection + Elitism
             pop_body_genotype[:] = toolbox_body.SurvivalSelectBody(offspring + tools.selBest(pop_body_genotype, k = ea_body_config.elites_body))
             # Save generation data (Note that genotypes are not saved as DEAP lists, only normal lists)
@@ -1257,9 +1509,9 @@ def main(
     ea_brain_config = EABrainConfig(
         # General EA parameters
         runs_brain =            1,
-        ngen_brain =            20,
-        pop_size_brain =        20,
-        cxpb_brain =            0.7,
+        ngen_brain =            100,
+        pop_size_brain =        50,
+        cxpb_brain =            0.9,
         mutpb_brain =           0.5,
         elites_brain =          1,
         # Network structure
@@ -1276,7 +1528,7 @@ def main(
         sa_mut_sigma0=          0.7,
         sa_mut_min_sigma=       1e-6,
         # Crossover parameters
-        wa_alpha=               0.4,
+        wa_alpha=               0.5,
         # Selection parameters
         tourn_size=             3
     )
@@ -1285,8 +1537,8 @@ def main(
         runs_body=              1,
         ngen_body=              1,
         pop_size_body=          10,
-        cxpb_body=              0.7,
-        mutpb_body=             0.5,
+        cxpb_body=              0.5,
+        mutpb_body=             0.7,
         elites_body=            1, # PLEASE note: If no elites, the final generation 
                                    #              of a run might not contain the best
                                    #              individual over the whole run!
@@ -1299,9 +1551,9 @@ def main(
         sa_mut_sigma0=          0.7,
         sa_mut_min_sigma=       1e-8,
         # Crossover parameters
-        wa_alpha=               0.4,
+        wa_alpha=               0.5,
         # Selection parameters
-        tourn_size=             2,
+        tourn_size=             3,
         )
     
     ### ---
@@ -1390,8 +1642,8 @@ if __name__ == "__main__":
     For starting a new run, set RESUME to False, and the RESUME_RUN parameter 
     is ignored (you can just leave it).
     """
-    RESUME = True 
-    RESUME_RUN = 3
+    RESUME = False
+    RESUME_RUN = 5
     
     """
     RENDERING
@@ -1401,7 +1653,7 @@ if __name__ == "__main__":
     you then have to make the same changes to the interface code at the bottom of the script.
     """
     RENDER_GEN = 0
-    RENDER_RUN = 3
+    RENDER_RUN =4
     
     """
     INSPECT
@@ -1437,10 +1689,21 @@ if __name__ == "__main__":
         best_brain = best_data["best_brain_genotype"]
         best_robot_graph = tools.selBest(pop, k=1)[0].robot_graph
         input_size, output_size = find_in_out_size(best_robot_graph, sim_config.spawn_position.copy())
-        print_statistics(pop)
+        robot = construct_mjspec_from_graph(best_robot_graph)
+        mj.set_mjcb_control(None)
+        world = OlympicArena()
+        world.spawn(robot.spec, position=sim_config.spawn_position.copy())
+        model = world.spec.compile()
+        data = mj.MjData(model)
+        muj_data = {
+            "robot" : robot,
+            "world" : world,
+            "model" : model,
+            "data" : data
+        }
+    
         evaluate_robot(
             brain_genotype = best_brain,
-            robot_graph = best_robot_graph,
             controller_func = nn_controller,
             network_specs = {
                 "input_size" :          input_size,
@@ -1449,6 +1712,7 @@ if __name__ == "__main__":
                 "no_hidden_layers" :    2
             },
             sim_config = sim_config,
+            muj_data = muj_data,
             experiment_mode = "launcher",
             initial_duration = 120
         )
