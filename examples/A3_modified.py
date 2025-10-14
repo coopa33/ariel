@@ -174,7 +174,7 @@ def save_generation(
         None
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    gen_dir = sim_config.data / f"run_{run_id}" / f"generation_{generation:03d}"
+    gen_dir = sim_config.data / f"randomwalk_{run_id}" / f"generation_{generation:03d}"
     gen_dir.mkdir(parents=True, exist_ok=True)
     
     with open(gen_dir / "body_population.pkl", "wb") as f:
@@ -193,33 +193,6 @@ def save_generation(
     
     print(f"Saved generation {generation} data to {gen_dir}")
 
-def load_population_from_generation(sim_config, generation, run_id = 0):
-    """
-    Load saved generation data, by specifying which run and generation to load.
-    
-    Args:
-        generation (int):           The generation number to load
-        run_id (int):               The run number to load
-        sim_config (instance):      The simulation configuration object
-        
-    Returns:
-        population (list[DEAP lists]): The population loaded from the generation
-        best_data (dict):              The relevant data for the best formining individual
-                                       of that generation.
-    """
-    gen_dir = sim_config.data / f"run_{run_id}" / f"generation_{generation:03d}"
-    if not gen_dir.exists():
-        raise FileNotFoundError(f"Generation {generation} data not found at {gen_dir}")
-    # Load population
-    with open(gen_dir / "body_population.pkl", "rb") as f:
-        population = pickle.load(f)
-    # Load best data
-    with open(gen_dir / "best_performers.pkl", "rb") as f:
-        best_data = pickle.load(f)
-    # Print statement
-    print(f"Resumed from generation {generation} with {len(population)} individuals")
-    print(f"Best fitness from that generation: {best_data.get('body_fitness', 'Unknown')}")
-    return population, best_data
 
 def get_next_run_id(sim_config: EAConfig) -> int:
     """
@@ -268,60 +241,6 @@ def find_latest_generation(sim_config, run_id):
                 continue
     return latest_gen
 
-
-### === Plotting ===
-def plot_run_statistics(sim_config, run_id):
-    run_dir = sim_config.data / f"run_{run_id}"
-    if not run_dir.exists():
-        raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
-    
-    run_means = []
-    run_stds = []
-    run_bests = []
-    for gen_dir in run_dir.iterdir():
-        if gen_dir.is_dir() and gen_dir.name.startswith("generation_"):
-            gen_num = int(gen_dir.name.split("_")[1])
-            pop, best_data = load_population_from_generation(sim_config, gen_num, run_id)
-            mean = np.mean([ind.fitness.values[0] for ind in pop if ind.fitness.valid])
-            std = np.std([ind.fitness.values[0] for ind in pop if ind.fitness.valid])
-            best = best_data.get("body_fitness", None)
-            run_means.append(mean)
-            run_stds.append(std)
-            run_bests.append(best)
-    
-    run_means = np.array(run_means)
-    run_stds = np.array(run_stds)
-    run_bests = np.array(run_bests)
-    x = np.arange(len(run_means))
-    fig, ax = plt.subplots()
-    ax.plot(x, run_means, linestyle = "--", linewidth = 1.5, color = "blue", label = "Mean Fitness")
-    ax.fill_between(x, run_means - run_stds, run_means + run_stds, color="blue", alpha=0.2, label="Std. Dev.")
-    ax.plot(x, run_bests, linestyle = "-", linewidth = 2, color = "red", label = "Best Fitness")
-    ax.set_xlabel("Generation")
-    ax.set_ylabel("Fitness")
-    ax.legend()
-    plt.title(f"Run {run_id} - Fitness over Generations")
-    save_unique_png(fig, path=f"__data__/A3_modified/run_{run_id}_", ext = f".png")
-
-def save_unique_png(fig, path = "__data__/", ext = ".png"):
-    """Function to save plt figures with unique filenames. To prevent
-       overwriting existing plots.
-
-    Args:
-        fig (matplotlib.figure): Figure to save
-        path (str, optional): The path of the directory where the figure 
-                              is to be saved. Defaults to "__data__/".
-
-    Returns:
-        _type_: The path of the saved file
-    """
-    i = 0
-    filename = f"{path}image{ext}"
-    while os.path.exists(filename):
-        i += 1
-        filename = f"{path}image_{i}{ext}"
-    fig.savefig(filename)
-    return filename
 
 def show_xpos_history(history: list[float], sim_config) -> None:
     # Create a tracking camera
@@ -515,7 +434,7 @@ def experiment(
     # Initialise world
     world = OlympicArena()
     # Spawn robot in the world, check docstring for spawn conditions
-    world.spawn(robot.spec, spawn_position=sim_config.spawn_position.copy())
+    world.spawn(robot.spec, position=sim_config.spawn_position.copy())
     # Generate the model and data
     model = world.spec.compile()
     data = mj.MjData(model)
@@ -1187,9 +1106,11 @@ if __name__ == "__main__":
     But if you are not running the simulation, I would recommend just running it normally, f.e. 
     with uv run, because you do not get these annoying syntax warnings that scoop gives. 
     """
-    SIMULATE = True 
-    RENDER = False      
+    SIMULATE = False
+    RENDER = False     
     INSPECT = False
+    RANDOM_WALK = True  # Add this for random walk demo
+    RANDOM_WALK_SAMPLES = 37  # Number of random walk samples to generate
 
     """
     SIMULATION
@@ -1209,8 +1130,8 @@ if __name__ == "__main__":
     Note that the renderer assumes the default network structure. If you change the network in main(),
     you then have to make the same changes to the interface code at the bottom of the script.
     """
-    RENDER_GEN = 5
-    RENDER_RUN = 0
+    RENDER_GEN = 59  # Changed from 59 to a more reasonable value
+    RENDER_RUN = 3  # Changed from 3 to 0 (first run)
     
     """
     INSPECT
@@ -1237,30 +1158,50 @@ if __name__ == "__main__":
                 )
 
     if RENDER:
-        pop, best_data = load_population_from_generation(
-            sim_config = sim_config,
-            generation = RENDER_GEN,
-            run_id = RENDER_RUN
-        )
-        best_robot = best_data["best_body_genotype"]
-        best_brain = best_data["best_brain_genotype"]
-        best_robot_graph = tools.selBest(pop, k=1)[0].robot_graph
-        input_size, output_size = find_in_out_size(best_robot_graph, sim_config.spawn_position.copy())
-        print_statistics(pop)
-        evaluate_robot(
-            brain_genotype = best_brain,
-            robot_graph = best_robot_graph,
-            controller_func = nn_controller,
-            network_specs = {
-                "input_size" :          input_size,
-                "output_size" :         output_size,
-                "hidden_size" :         128,
-                "no_hidden_layers" :    3
-            },
-            sim_config = sim_config,
-            experiment_mode = "launcher",
-            initial_duration = 120
-        )
+        try:
+            pop, best_data = load_population_from_generation(
+                sim_config = sim_config,
+                generation = RENDER_GEN,
+                run_id = RENDER_RUN
+            )
+            print(f"Successfully loaded generation {RENDER_GEN}, run {RENDER_RUN}")
+            print(f"Population size: {len(pop)}")
+            print(f"Best data keys: {best_data.keys()}")
+            
+            best_robot = best_data["best_body_genotype"]
+            best_brain = best_data["best_brain_genotype"]
+            best_nde = best_data["nde"]
+            
+            print(f"Best robot type: {type(best_robot)}")
+            print(f"Best robot length: {len(best_robot) if hasattr(best_robot, '__len__') else 'No length'}")
+            
+            # Create robot graph from the body genotype using the saved NDE
+            best_robot_graph = create_robot_graph(best_robot, sim_config = sim_config, nde= best_nde)
+            print(f"Robot graph type: {type(best_robot_graph)}")
+            print(f"Robot graph has nodes: {hasattr(best_robot_graph, 'nodes')}")
+            
+            input_size, output_size = find_in_out_size(best_robot_graph, sim_config.spawn_position.copy())
+            print_statistics(pop)
+            evaluate_robot(
+                brain_genotype = best_brain,
+                robot_graph = best_robot_graph,
+                controller_func = nn_controller,
+                network_specs = {
+                    "input_size" :          input_size,
+                    "output_size" :         output_size,
+                    "hidden_size" :         128,
+                    "no_hidden_layers" :    3
+                },
+                sim_config = sim_config,
+                experiment_mode = "launcher",
+                initial_duration = 120
+            )
+        except Exception as e:
+            print(f"Error in RENDER section: {e}")
+            print(f"Attempted to load generation {RENDER_GEN}, run {RENDER_RUN}")
+            print("Please check if this generation and run exist in your data")
+            print("You can change RENDER_GEN and RENDER_RUN to values that exist")
+            
     if INSPECT:
         # Loading itself should output the best fitness of that gen.
         # pop, best_data = load_population_from_generation(
@@ -1269,6 +1210,158 @@ if __name__ == "__main__":
         #     run_id = INSPECT_RUN
         # )
         plot_run_statistics(sim_config, INSPECT_RUN)
+        
+    if RANDOM_WALK:
+        print(f"=== Random Walk Demo ({RANDOM_WALK_SAMPLES} samples) ===")
+        
+        # Find next available random walk run ID
+        random_walk_run_id = get_next_run_id(sim_config)
+        print(f"Saving random walk data to randomwalk_{random_walk_run_id}")
+        
+        # Store all results for analysis
+        all_results = []
+        
+        for sample_idx in range(RANDOM_WALK_SAMPLES):
+            print(f"\n--- Random Walk Sample {sample_idx + 1}/{RANDOM_WALK_SAMPLES} ---")
+            
+            # Generate a random body genotype for this sample
+            body_genotype = [random.random() for _ in range(3 * 64)]
+            print(f"Generated random body with {len(body_genotype)} parameters")
+            
+            try:
+                # Create robot from the genotype
+                robot_graph = create_robot_graph(body_genotype, sim_config)
+                robot_spec = construct_mjspec_from_graph(robot_graph)
+                
+                # Setup tracker and controller
+                tracker = Tracker(mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM, name_to_bind="core")
+                ctrl = Controller(controller_callback_function=rw_controller, tracker=tracker)
+                
+                print("Running random walk simulation...")
+                
+                # Run the random walk
+                experiment(
+                    robot=robot_spec,
+                    controller=ctrl,
+                    matrices=None,  # rw_controller generates its own random weights
+                    sim_config=sim_config,
+                    duration=15,
+                    mode="simple"  # Change to "launcher" for visualization
+                )
+                
+                # Process results and save data
+                if tracker.history and "xpos" in tracker.history:
+                    positions = tracker.history["xpos"][0]
+                    start_pos = positions[0]
+                    end_pos = positions[-1]
+                    distance_moved = np.linalg.norm(np.array(end_pos) - np.array(start_pos))
+                    
+                    # Calculate fitness using the same function as EA
+                    ea_fitness = fitness_function(tracker.history["xpos"][0], sim_config)
+                    
+                    print(f"   Start position: {start_pos}")
+                    print(f"   End position: {end_pos}")
+                    print(f"   Distance moved: {distance_moved:.3f} units")
+                    print(f"   EA-style fitness: {ea_fitness:.3f} (distance to target)")
+                    
+                    # Store result for summary
+                    sample_result = {
+                        'sample': sample_idx,
+                        'body_genotype': body_genotype,
+                        'distance_moved': distance_moved,
+                        'ea_fitness': ea_fitness,
+                        'start_pos': start_pos,
+                        'end_pos': end_pos,
+                        'trajectory': positions
+                    }
+                    all_results.append(sample_result)
+                    
+                    # Create a fake "individual" to match the EA format
+                    from deap import base
+                    _, ind_type = ensure_deap_types()
+                    
+                    # Create individual with the body genotype
+                    fake_individual = ind_type(body_genotype)
+                    fake_individual.fitness.values = (ea_fitness,)  # Use same fitness as EA
+                    
+                    # Create a fake population with just this individual
+                    fake_population = [fake_individual]
+                    
+                    # Create fake brain (random weights used by rw_controller)
+                    fake_brain = None
+                    
+                    # Save each sample as a separate "generation"
+                    save_generation(
+                        generation=sample_idx,  # Each sample gets its own generation number
+                        pop_body_genotype=fake_population,
+                        best_body=fake_individual,
+                        best_brain=fake_brain,
+                        run_id=random_walk_run_id,
+                        sim_config=sim_config
+                    )
+                
+                    print(f"   ✅ Sample {sample_idx + 1} saved to generation_{sample_idx:03d}")
+                    
+                    if distance_moved > 0.1:
+                        print("   ✅ Random walk successful!")
+                    else:
+                        print("   ⚠️ Robot barely moved")
+                        
+                else:
+                    print("   ❌ No tracking data available for this sample")
+                    all_results.append({
+                        'sample': sample_idx,
+                        'body_genotype': body_genotype,
+                        'distance_moved': 0.0,
+                        'error': 'No tracking data'
+                    })
+                    
+            except Exception as e:
+                print(f"   ❌ Error with sample {sample_idx + 1}: {e}")
+                all_results.append({
+                    'sample': sample_idx,
+                    'body_genotype': body_genotype if 'body_genotype' in locals() else None,
+                    'distance_moved': 0.0,
+                    'error': str(e)
+                })
+        
+        # Save summary of all random walk samples
+        print(f"\n=== Random Walk Summary ===")
+        successful_samples = [r for r in all_results if r.get('distance_moved', 0) > 0]
+        
+        if successful_samples:
+            distances = [r['distance_moved'] for r in successful_samples]
+            print(f"Successful samples: {len(successful_samples)}/{RANDOM_WALK_SAMPLES}")
+            print(f"Average distance: {np.mean(distances):.3f}")
+            print(f"Best distance: {np.max(distances):.3f}")
+            print(f"Worst distance: {np.min(distances):.3f}")
+            
+            # Save overall summary
+            rw_summary = {
+                "type": "random_walk_batch",
+                "controller": "rw_controller",
+                "duration": 15,
+                "num_samples": RANDOM_WALK_SAMPLES,
+                "successful_samples": len(successful_samples),
+                "all_results": all_results,
+                "statistics": {
+                    "mean_distance": float(np.mean(distances)),
+                    "max_distance": float(np.max(distances)),
+                    "min_distance": float(np.min(distances)),
+                    "std_distance": float(np.std(distances))
+                },
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S")
+            }
+            
+            summary_file = sim_config.data / f"randomwalk_{random_walk_run_id}" / "random_walk_batch_summary.pkl"
+            with open(summary_file, "wb") as f:
+                pickle.dump(rw_summary, f)
+            
+            print(f"✅ All random walk data saved to run_{random_walk_run_id}")
+            print(f"   - {RANDOM_WALK_SAMPLES} generations (one per sample)")
+            print(f"   - random_walk_batch_summary.pkl: Overall statistics")
+        else:
+            print(f"❌ No successful random walk samples out of {RANDOM_WALK_SAMPLES} attempts")
 
     
     

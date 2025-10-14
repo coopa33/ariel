@@ -35,7 +35,7 @@ def find_in_out_size(
 
     # Spawn robot in the world
     # Check docstring for spawn conditions
-    world_test.spawn(core_test.spec, spawn_position=spawn_pos)
+    world_test.spawn(core_test.spec, position=spawn_pos)
 
     # Generate the model and data
     model_test = world_test.spec.compile()
