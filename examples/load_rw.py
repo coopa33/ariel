@@ -182,10 +182,11 @@ def plot_ea_vs_random_walk(ea_run_id: int, rw_run_id: int, data_path: str = "__d
     
     
     # Add horizontal line for random walk mean
-    rw_mean_value = np.mean(rw_bests)  # Calculate mean of random walk best values
-    # ax.axhline(y=rw_means, color="green", linestyle=":", alpha=0.5, 
-            #   label=f"Random Walk Mean")
-    
+    # rw_mean_value = np.mean(rw_bests)  # Calculate mean of random walk best values
+
+    ax.plot(rw_x, rw_means, linestyle=":", linewidth=2, color="green", marker="o", markersize=4, alpha=0.5,
+            label=f"Random Walk Mean")
+
     ax.set_xlabel("Generation")
     ax.set_ylabel("Fitness (Negative Distance to Target)")
     ax.legend()

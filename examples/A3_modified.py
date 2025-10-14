@@ -1212,156 +1212,220 @@ if __name__ == "__main__":
         plot_run_statistics(sim_config, INSPECT_RUN)
         
     if RANDOM_WALK:
-        print(f"=== Random Walk Demo ({RANDOM_WALK_SAMPLES} samples) ===")
+        print(f"=== Baseline Experiment (Random Networks) ===")
+        print("Running same EA structure but with random network initialization instead of learning")
         
-        # Find next available random walk run ID
-        random_walk_run_id = get_next_run_id(sim_config)
-        print(f"Saving random walk data to randomwalk_{random_walk_run_id}")
+        # Find next available baseline run ID
+        baseline_run_id = get_next_run_id(sim_config)
+        print(f"Saving baseline data to run_{baseline_run_id}")
         
-        # Store all results for analysis
-        all_results = []
-        
-        for sample_idx in range(RANDOM_WALK_SAMPLES):
-            print(f"\n--- Random Walk Sample {sample_idx + 1}/{RANDOM_WALK_SAMPLES} ---")
+        # Use the same EA structure but replace brain evolution with random initialization
+        def baseline_brain_evaluation(robot_graph, ea_brain_config, sim_config, ind_type, mode):
+            """
+            Baseline version of EA_brain that uses random networks instead of evolution
+            """
+            # Define the network specifications (same as EA)
+            input_size, output_size = find_in_out_size(robot_graph, sim_config.spawn_position.copy())
+            network_specs = {
+                "input_size" :          input_size,
+                "output_size" :         output_size,
+                "hidden_size" :         ea_brain_config.hidden_size,
+                "no_hidden_layers" :    ea_brain_config.no_hidden_layers
+            }    
             
-            # Generate a random body genotype for this sample
-            body_genotype = [random.random() for _ in range(3 * 64)]
-            print(f"Generated random body with {len(body_genotype)} parameters")
+            # Calculate the size of a brain genotype (same as EA)
+            ind_size = compute_brain_genome_size(network_specs)
             
-            try:
-                # Create robot from the genotype
-                robot_graph = create_robot_graph(body_genotype, sim_config)
-                robot_spec = construct_mjspec_from_graph(robot_graph)
+            # Create a random brain genotype instead of evolving one
+            random_brain = [ea_brain_config.init_func() for _ in range(ind_size)]
+            
+            # Evaluate this random brain
+            fitness = evaluate_robot(
+                brain_genotype=random_brain,
+                robot_graph=robot_graph,
+                controller_func=nn_controller,
+                network_specs=network_specs,
+                sim_config=sim_config,
+                experiment_mode=mode,
+                initial_duration=15
+            )
+            
+            # Convert to DEAP individual for compatibility
+            _, ind_type_local = ensure_deap_types()
+            brain_individual = ind_type_local(random_brain)
+            brain_individual.fitness.values = fitness
+            
+            return fitness, brain_individual
+        
+        # Run the same EA_body structure but with baseline brain evaluation
+        def baseline_EA_body(ea_brain_config, ea_body_config, sim_config, run_id):
+            """
+            Same as EA_body but uses random brain initialization instead of brain evolution
+            """
+            # Same body setup as normal EA
+            body_genotype_size = 3*64
+            _, ind_type = ensure_deap_types()
+            
+            # Create body toolbox (same as EA)
+            toolbox_body = base.Toolbox()
+            toolbox_body.register("map", map)  # No parallelization for baseline
+            toolbox_body.register("attr_float", random.random)
+            toolbox_body.register("individual", tools.initRepeat, ind_type, toolbox_body.attr_float, n=body_genotype_size)
+            toolbox_body.register("make_viable_body", make_viable_body, sim_config=sim_config, base_body_generator=toolbox_body.individual, delta=0.2)
+            toolbox_body.register("population", tools.initRepeat, list, toolbox_body.make_viable_body)
+            
+            # Use baseline brain evaluation instead of EA_brain
+            toolbox_body.register("EvaluateRobotBody", baseline_brain_evaluation, ea_brain_config=ea_brain_config, sim_config=sim_config, ind_type=ind_type, mode="simple")
+            
+            # Same body evolution operators as EA
+            toolbox_body.register("ParentSelectBody", tools.selTournament, tournsize=ea_body_config.tourn_size)
+            toolbox_body.register("SurvivalSelectBody", tools.selBest, k=ea_body_config.pop_size_body)
+            toolbox_body.register("MateBody", whole_arithmetic_recomb, alpha=ea_body_config.wa_alpha)
+            toolbox_body.register("MutateBody", tools.mutGaussian, mu=ea_body_config.gauss_mut_mu, sigma=ea_body_config.gauss_mut_sigma, indpb=ea_body_config.gauss_mut_indpb)
+            
+            # Run single baseline experiment (not multiple runs)
+            print("Creating initial population of viable bodies...")
+            pop_body_genotype = toolbox_body.population(n=ea_body_config.pop_size_body)
+            
+            # Attach NDE and robot graphs to each body
+            for ind in pop_body_genotype:
+                attach_nde_graph(ind, sim_config)
+            
+            # Initial population evaluation with random brains
+            print("Evaluating initial population with random brains...")
+            f_body_genotype = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [ind.robot_graph for ind in pop_body_genotype]))
+            for ind, (f, random_brain) in zip(pop_body_genotype, f_body_genotype):
+                ind.fitness.values = f
+                ind.best_brain = random_brain
+            
+            print("Initial baseline population stats:")
+            print_statistics(pop_body_genotype)
+            
+            # Run through generations with same structure as EA but random brains each time
+            for g in range(ea_body_config.ngen_body):
+                print(f"\n--- Baseline Generation {g + 1}/{ea_body_config.ngen_body} ---")
                 
-                # Setup tracker and controller
-                tracker = Tracker(mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM, name_to_bind="core")
-                ctrl = Controller(controller_callback_function=rw_controller, tracker=tracker)
+                # Same selection and variation as EA
+                offspring = toolbox_body.ParentSelectBody(pop_body_genotype, k=ea_body_config.pop_size_body)
+                offspring = list(toolbox_body.map(toolbox_body.clone, offspring))
+                random.shuffle(offspring)
                 
-                print("Running random walk simulation...")
-                
-                # Run the random walk
-                experiment(
-                    robot=robot_spec,
-                    controller=ctrl,
-                    matrices=None,  # rw_controller generates its own random weights
-                    sim_config=sim_config,
-                    duration=15,
-                    mode="simple"  # Change to "launcher" for visualization
-                )
-                
-                # Process results and save data
-                if tracker.history and "xpos" in tracker.history:
-                    positions = tracker.history["xpos"][0]
-                    start_pos = positions[0]
-                    end_pos = positions[-1]
-                    distance_moved = np.linalg.norm(np.array(end_pos) - np.array(start_pos))
-                    
-                    # Calculate fitness using the same function as EA
-                    ea_fitness = fitness_function(tracker.history["xpos"][0], sim_config)
-                    
-                    print(f"   Start position: {start_pos}")
-                    print(f"   End position: {end_pos}")
-                    print(f"   Distance moved: {distance_moved:.3f} units")
-                    print(f"   EA-style fitness: {ea_fitness:.3f} (distance to target)")
-                    
-                    # Store result for summary
-                    sample_result = {
-                        'sample': sample_idx,
-                        'body_genotype': body_genotype,
-                        'distance_moved': distance_moved,
-                        'ea_fitness': ea_fitness,
-                        'start_pos': start_pos,
-                        'end_pos': end_pos,
-                        'trajectory': positions
-                    }
-                    all_results.append(sample_result)
-                    
-                    # Create a fake "individual" to match the EA format
-                    from deap import base
-                    _, ind_type = ensure_deap_types()
-                    
-                    # Create individual with the body genotype
-                    fake_individual = ind_type(body_genotype)
-                    fake_individual.fitness.values = (ea_fitness,)  # Use same fitness as EA
-                    
-                    # Create a fake population with just this individual
-                    fake_population = [fake_individual]
-                    
-                    # Create fake brain (random weights used by rw_controller)
-                    fake_brain = None
-                    
-                    # Save each sample as a separate "generation"
-                    save_generation(
-                        generation=sample_idx,  # Each sample gets its own generation number
-                        pop_body_genotype=fake_population,
-                        best_body=fake_individual,
-                        best_brain=fake_brain,
-                        run_id=random_walk_run_id,
-                        sim_config=sim_config
-                    )
-                
-                    print(f"   ✅ Sample {sample_idx + 1} saved to generation_{sample_idx:03d}")
-                    
-                    if distance_moved > 0.1:
-                        print("   ✅ Random walk successful!")
-                    else:
-                        print("   ⚠️ Robot barely moved")
+                # Apply variation operators (same as EA)
+                for child1, child2 in zip(offspring[::2], offspring[1::2]):
+                    if random.random() < ea_body_config.cxpb_body:
+                        toolbox_body.MateBody(child1, child2)
+                        delete_after_variation(child1)
+                        delete_after_variation(child2)
                         
-                else:
-                    print("   ❌ No tracking data available for this sample")
-                    all_results.append({
-                        'sample': sample_idx,
-                        'body_genotype': body_genotype,
-                        'distance_moved': 0.0,
-                        'error': 'No tracking data'
-                    })
-                    
-            except Exception as e:
-                print(f"   ❌ Error with sample {sample_idx + 1}: {e}")
-                all_results.append({
-                    'sample': sample_idx,
-                    'body_genotype': body_genotype if 'body_genotype' in locals() else None,
-                    'distance_moved': 0.0,
-                    'error': str(e)
-                })
+                for mutant in offspring:
+                    if random.random() < ea_body_config.mutpb_body:
+                        toolbox_body.MutateBody(mutant)
+                        delete_after_variation(mutant)
+                
+                # Re-evaluate modified individuals with NEW random brains
+                invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+                
+                # Ensure bounds and attach new graphs
+                for ind in invalid_ind:
+                    for i in range(len(ind)):
+                        if ind[i] < 0.0:
+                            ind[i] = 0.0
+                        elif ind[i] > 1.0:
+                            ind[i] = 1.0
+                    attach_nde_graph(ind, sim_config)
+                
+                # Evaluate with fresh random brains
+                print(f"Evaluating {len(invalid_ind)} modified individuals with random brains...")
+                invalid_fitnesses = list(toolbox_body.map(toolbox_body.EvaluateRobotBody, [ind.robot_graph for ind in invalid_ind]))
+                for ind, (f, random_brain) in zip(invalid_ind, invalid_fitnesses):
+                    ind.fitness.values = f
+                    ind.best_brain = random_brain
+                
+                # Survival selection + elitism (same as EA)
+                pop_body_genotype[:] = toolbox_body.SurvivalSelectBody(offspring + tools.selBest(pop_body_genotype, k=ea_body_config.elites_body))
+                
+                # Save generation data
+                best_body = tools.selBest(pop_body_genotype, k=1)[0]
+                best_brain = best_body.best_brain
+                save_generation(g, pop_body_genotype, best_body, best_brain, run_id=str(run_id), sim_config=sim_config)
+                
+                # Print generation statistics
+                print("Baseline Generation Stats:")
+                print_statistics(pop_body_genotype)
+            
+            return tools.selBest(pop_body_genotype, k=1)[0]
         
-        # Save summary of all random walk samples
-        print(f"\n=== Random Walk Summary ===")
-        successful_samples = [r for r in all_results if r.get('distance_moved', 0) > 0]
+        # Use same EA configuration as normal experiment
+        ea_brain_config = EABrainConfig(
+            # Network structure (same as EA)
+            hidden_size=128,
+            no_hidden_layers=3,
+            # Initialization function (same as EA)
+            init_func=partial(np.random.uniform, -1, 1),
+        )
         
-        if successful_samples:
-            distances = [r['distance_moved'] for r in successful_samples]
-            print(f"Successful samples: {len(successful_samples)}/{RANDOM_WALK_SAMPLES}")
-            print(f"Average distance: {np.mean(distances):.3f}")
-            print(f"Best distance: {np.max(distances):.3f}")
-            print(f"Worst distance: {np.min(distances):.3f}")
+        ea_body_config = EABodyConfig(
+            # General EA parameters
+            runs_body=              1,
+            ngen_body=              30,
+            pop_size_body=          10,
+            cxpb_body=              0.5,
+            mutpb_body=             0.7,
+            elites_body=            1, # PLEASE note: If no elites, the final generation 
+                                       #              of a run might not contain the best
+                                       #              individual over the whole run!
+            # Mutation parameters 
+            gauss_mut_mu=           0.0,
+            gauss_mut_sigma=        0.15,
+            gauss_mut_indpb=        0.15,
+            # Crossover parameters
+            wa_alpha=               0.4,
+            # Selection parameters
+            tourn_size=             2,
+        )
             
-            # Save overall summary
-            rw_summary = {
-                "type": "random_walk_batch",
-                "controller": "rw_controller",
-                "duration": 15,
-                "num_samples": RANDOM_WALK_SAMPLES,
-                "successful_samples": len(successful_samples),
-                "all_results": all_results,
-                "statistics": {
-                    "mean_distance": float(np.mean(distances)),
-                    "max_distance": float(np.max(distances)),
-                    "min_distance": float(np.min(distances)),
-                    "std_distance": float(np.std(distances))
-                },
-                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S")
-            }
-            
-            summary_file = sim_config.data / f"randomwalk_{random_walk_run_id}" / "random_walk_batch_summary.pkl"
-            with open(summary_file, "wb") as f:
-                pickle.dump(rw_summary, f)
-            
-            print(f"✅ All random walk data saved to run_{random_walk_run_id}")
-            print(f"   - {RANDOM_WALK_SAMPLES} generations (one per sample)")
-            print(f"   - random_walk_batch_summary.pkl: Overall statistics")
-        else:
-            print(f"❌ No successful random walk samples out of {RANDOM_WALK_SAMPLES} attempts")
+        print("Starting baseline experiment with same EA structure but random brain networks...")
+        start_time = time()
+        
+        best_baseline = baseline_EA_body(
+            ea_brain_config=ea_brain_config,
+            ea_body_config=ea_body_config,
+            sim_config=sim_config,
+            run_id=baseline_run_id
+        )
+        
+        end_time = time()
+        
+        print(f"\n=== Baseline Experiment Complete ===")
+        print(f"Elapsed time: {end_time - start_time:.2f} seconds")
+        print(f"Best baseline fitness: {best_baseline.fitness.values[0]:.6f}")
+        print(f"Baseline data saved to run_{baseline_run_id}")
+        print("Note: This baseline uses the same EA structure as the normal experiment,")
+        print("but with random brain network initialization instead of brain evolution.")
+
+    # Brain EA
+    ea_brain_config = EABrainConfig(
+        # General EA parameters
+        runs_brain =            1,
+        ngen_brain =            100,
+        pop_size_brain =        30,
+        cxpb_brain =            0.5, 
+        mutpb_brain =           0.9,
+        elites_brain =          1,
+        # Network structure
+        hidden_size=            64,
+        no_hidden_layers=       2,
+        # Initialization function for brain genotype
+        init_func=              partial(np.random.normal, 0, 1),
+        # Mutation parameters
+        gauss_mut_mu=           0.0,
+        gauss_mut_sigma=        1,
+        gauss_mut_indpb=        0.5,
+        # Crossover parameters
+        wa_alpha=               0.4,
+        # Selection parameters
+        tourn_size=             2
+    )
 
     
     
