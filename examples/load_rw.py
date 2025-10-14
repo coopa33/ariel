@@ -173,7 +173,7 @@ def plot_ea_vs_random_walk(ea_run_id: int, rw_run_id: int, data_path: str = "__d
     
     # Plot EA data
     ax.plot(ea_x, ea_means, linestyle="--", linewidth=1.5, color="blue", label=f"EA Run - Mean Fitness")
-    ax.fill_between(ea_x, ea_means - ea_stds, ea_means + ea_stds, color="blue", alpha=0.2, label=f"EA Run - Std. Dev.")
+    # ax.fill_between(ea_x, ea_means - ea_stds, ea_means + ea_stds, color="blue", alpha=0.2, label=f"EA Run - Std. Dev.")
     ax.plot(ea_x, ea_bests, linestyle="-", linewidth=2, color="red", label=f"EA Run - Best Fitness")
     
     # Plot random walk data
@@ -182,9 +182,9 @@ def plot_ea_vs_random_walk(ea_run_id: int, rw_run_id: int, data_path: str = "__d
     
     
     # Add horizontal line for random walk mean
-    # rw_mean_value = np.mean(rw_bests)  # Calculate mean of random walk best values
-    ax.axhline(y=rw_means, color="green", linestyle=":", alpha=0.5, 
-               label=f"Random Walk Mean")
+    rw_mean_value = np.mean(rw_bests)  # Calculate mean of random walk best values
+    # ax.axhline(y=rw_means, color="green", linestyle=":", alpha=0.5, 
+            #   label=f"Random Walk Mean")
     
     ax.set_xlabel("Generation")
     ax.set_ylabel("Fitness (Negative Distance to Target)")
@@ -198,14 +198,19 @@ def plot_ea_vs_random_walk(ea_run_id: int, rw_run_id: int, data_path: str = "__d
     ea_final_std = ea_stds[-1]  # Standard deviation of the final generation population
     ea_best_std = np.std(ea_bests)  # Standard deviation of best fitness across all generations
     rw_std_value = np.std(rw_bests)  # Calculate standard deviation of random walk best values
-    improvement_over_rw = ((ea_final_best - rw_means) / abs(rw_means) * 100) if rw_means != 0 else 0
+    rw_mean_value = np.mean(rw_means)  # Get the mean of random walk means
+    improvement_over_rw = ((ea_final_best - rw_mean_value) / abs(rw_mean_value) * 100) if rw_mean_value != 0 else 0
     
+    rw_best_fitness = np.max(rw_bests)  # Get the best (highest) fitness from random walk
+    # print(f"Random Walk Best Fitness: {rw_best_fitness:.3f}")
+
     stats_text = f"EA Final Best: {ea_final_best:.3f}\n"
     stats_text += f"EA Final Mean: {ea_final_mean:.3f}\n"
-    stats_text += f"EA Best Std Dev: {ea_best_std:.3f}\n"
-    stats_text += f"EA Final Std Dev: {ea_final_std:.3f}\n"
-    stats_text += f"Random Walk Mean: {rw_means:.3f}\n"
-    stats_text += f"Random Walk Std Dev: {rw_std_value:.3f}\n"
+    # stats_text += f"EA Best Std Dev: {ea_best_std:.3f}\n"
+    # stats_text += f"EA Final Std Dev: {ea_final_std:.3f}\n"
+    stats_text += f"Random Walk Best: {rw_best_fitness:.3f}\n"
+    stats_text += f"Random Walk Mean: {rw_mean_value:.3f}\n"
+    # stats_text += f"Random Walk Std Dev: {rw_std_value:.3f}\n"
     stats_text += f"EA Improvement (compared to RW): {improvement_over_rw:.1f}%"
     
     ax.text(0.98, 0.98, stats_text, transform=ax.transAxes, fontsize=10,
